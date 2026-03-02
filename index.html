@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <title>MyChat Web (Android compatible)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Import map para tink-crypto desde jsDelivr (versión 2.0.2) -->
+    <!-- Import map para tink-crypto (versión 2.0.2) -->
     <script type="importmap">
         {
             "imports": {
-                "tink-crypto": "https://cdn.jsdelivr.net/npm/tink-crypto@2.0.2/+esm"
+                "tink-crypto": "https://cdn.jsdelivr.net/npm/tink-crypto@2.0.2/+esm",
+                "tink-crypto/hybrid": "https://cdn.jsdelivr.net/npm/tink-crypto@2.0.2/+esm/hybrid"
             }
         }
     </script>
@@ -626,7 +627,8 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { getDatabase, ref, set, get, update, onValue, push, serverTimestamp, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
-        // Importaciones específicas de Tink
+        
+        // Importaciones específicas de Tink (usando el import map definido arriba)
         import { KeysetHandle } from 'tink-crypto';
         import { HybridConfig, HybridKeyTemplates, HybridEncrypt, HybridDecrypt } from 'tink-crypto/hybrid';
 
@@ -662,7 +664,7 @@
 
         // ==================== INICIALIZACIÓN DE TINK ====================
         console.log('Registrando Tink Hybrid...');
-        await HybridConfig.register();  // <-- usando la importación específica
+        await HybridConfig.register();
         console.log('Tink registrado');
 
         // ==================== FUNCIONES DE GESTIÓN DE CLAVES ====================
@@ -681,7 +683,7 @@
             }
             if (!myKeysetHandle) {
                 console.log('Generando nuevo par de claves');
-                const template = HybridKeyTemplates.eciesP256HkdfHmacSha256Aes128Gcm(); // <-- sin tink.hybrid
+                const template = HybridKeyTemplates.eciesP256HkdfHmacSha256Aes128Gcm();
                 myKeysetHandle = await KeysetHandle.generateKey(template);
                 // Guardar en localStorage (serializado con secret)
                 const keysetBytes = await myKeysetHandle.toBinary();
@@ -699,7 +701,7 @@
             if (!recipientPublicKeyBase64) throw new Error('Clave pública del destinatario no disponible');
             const publicBytes = Uint8Array.from(atob(recipientPublicKeyBase64), c => c.charCodeAt(0));
             const publicHandle = await KeysetHandle.fromBinary(publicBytes, true); // true = solo público
-            const hybridEncrypt = await publicHandle.getPrimitive(HybridEncrypt); // <-- pasamos la clase importada
+            const hybridEncrypt = await publicHandle.getPrimitive(HybridEncrypt);
             const ciphertext = await hybridEncrypt.encrypt(new TextEncoder().encode(plainText));
             return btoa(String.fromCharCode(...ciphertext));
         }
@@ -707,7 +709,7 @@
         async function decrypt(encryptedBase64) {
             if (!myKeysetHandle) throw new Error('Clave privada no disponible');
             const ciphertext = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-            const hybridDecrypt = await myKeysetHandle.getPrimitive(HybridDecrypt); // <-- pasamos la clase importada
+            const hybridDecrypt = await myKeysetHandle.getPrimitive(HybridDecrypt);
             const plainBytes = await hybridDecrypt.decrypt(ciphertext);
             return new TextDecoder().decode(plainBytes);
         }
