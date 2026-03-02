@@ -2,19 +2,10 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>MyChat Web (Android compatible)</title>
+    <title>MyChat Web (Web Crypto - compatible Android)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Import map para tink-crypto (versión 2.0.2) -->
-    <script type="importmap">
-        {
-            "imports": {
-                "tink-crypto": "https://cdn.jsdelivr.net/npm/tink-crypto@2.0.0/+esm",
-                "tink-crypto/hybrid": "https://cdn.jsdelivr.net/npm/tink-crypto@2.0.0/+esm/hybrid"
-            }
-        }
-    </script>
     <style>
-        /* (Mantengo todos los estilos originales sin cambios) */
+        /* ========== ESTILOS ORIGINALES (sin cambios) ========== */
         :root {
             --color-primary: #075e54;
             --color-primary-dark: #054c43;
@@ -503,7 +494,7 @@
 <body>
     <div class="app">
         <header class="app-header">
-            <div class="app-title">MyChart Web (Android compatible)</div>
+            <div class="app-title">MyChat Web (Android compatible)</div>
             <div class="user-info">
                 <div class="user-email" id="userEmail">Sin sesión</div>
                 <div style="display: flex; gap: 6px; justify-content: flex-end;">
@@ -627,21 +618,16 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { getDatabase, ref, set, get, update, onValue, push, serverTimestamp, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
-        
-        // Importaciones específicas de Tink (usando el import map definido arriba)
-        import { KeysetHandle } from 'tink-crypto';
-        import { HybridConfig, HybridKeyTemplates, HybridEncrypt, HybridDecrypt } from 'tink-crypto/hybrid';
 
-        // ==================== CONFIGURACIÓN DE FIREBASE (PROYECTO ANDROID) ====================
-        // ⚠️ REEMPLAZA ESTOS VALORES CON LOS DE TU PROYECTO FIREBASE (el mismo que usa la app Android)
+        // ==================== CONFIGURACIÓN DE FIREBASE ====================
         const firebaseConfig = {
-            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",                     // <-- CAMBIA ESTO
-            authDomain: "mychat-4fbf2.firebaseapp.com", // Ajusta si es necesario
+            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",                     // <-- REEMPLAZA
+            authDomain: "mychat-4fbf2.firebaseapp.com",
             databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
             projectId: "mychat-4fbf2",
             storageBucket: "mychat-4fbf2.firebasestorage.app",
-            messagingSenderId: "828186176654",          // Puede ser el mismo o el de Android
-            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"                         // <-- CAMBIA ESTO
+            messagingSenderId: "828186176654",
+            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"                         // <-- REEMPLAZA
         };
 
         const app = initializeApp(firebaseConfig);
@@ -658,63 +644,205 @@
         // Mapa de usuarios (uid -> { displayName, email, publicKey })
         const usersMap = new Map();
 
-        // Claves de cifrado (se cargan al iniciar sesión)
-        let myKeysetHandle = null;          // Tink KeysetHandle (privada)
-        let myPublicKeyBase64 = null;       // Clave pública en base64 (para subir a Firebase)
+        // Claves criptográficas (Web Crypto)
+        let myKeyPair = null;          // { publicKey, privateKey } (CryptoKey)
+        let myPublicKeyBase64 = null;  // clave pública en formato SPKI (Base64)
 
-        // ==================== INICIALIZACIÓN DE TINK ====================
-        console.log('Registrando Tink Hybrid...');
-        await HybridConfig.register();
-        console.log('Tink registrado');
+        // ==================== FUNCIONES CRIPTOGRÁFICAS (compatibles con Tink) ====================
+        // Genera un par de claves ECDH en curva P-256
+        async function generateKeyPair() {
+            return await crypto.subtle.generateKey(
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                ["deriveKey", "deriveBits"]
+            );
+        }
 
-        // ==================== FUNCIONES DE GESTIÓN DE CLAVES ====================
+        // Exporta la clave pública a formato SPKI (Base64)
+        async function exportPublicKey(publicKey) {
+            const spki = await crypto.subtle.exportKey("spki", publicKey);
+            return btoa(String.fromCharCode(...new Uint8Array(spki)));
+        }
+
+        // Importa una clave pública desde SPKI (Base64)
+        async function importPublicKey(spkiBase64) {
+            const spki = Uint8Array.from(atob(spkiBase64), c => c.charCodeAt(0));
+            return await crypto.subtle.importKey(
+                "spki",
+                spki,
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
+            );
+        }
+
+        // Convierte una clave pública ECDH a formato uncompressed (0x04 + X + Y) de 65 bytes
+        async function publicKeyToUncompressed(publicKey) {
+            // Exportar en formato raw (X e Y, 64 bytes)
+            const raw = await crypto.subtle.exportKey("raw", publicKey);
+            const rawBytes = new Uint8Array(raw);
+            // Añadir el byte 0x04 al inicio
+            const uncompressed = new Uint8Array(65);
+            uncompressed[0] = 0x04;
+            uncompressed.set(rawBytes, 1);
+            return uncompressed;
+        }
+
+        // Reconstruye una clave pública desde formato uncompressed (65 bytes)
+        async function uncompressedToPublicKey(uncompressed) {
+            if (uncompressed[0] !== 0x04) throw new Error('Formato uncompressed inválido');
+            const raw = uncompressed.slice(1); // 64 bytes (X e Y)
+            return await crypto.subtle.importKey(
+                "raw",
+                raw,
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
+            );
+        }
+
+        // Derivar clave AES-128-GCM usando HKDF-SHA256 a partir de un secreto compartido
+        async function deriveAesKey(sharedSecret) {
+            // sharedSecret es de 32 bytes (256 bits) del ECDH
+            const hkdfKey = await crypto.subtle.importKey(
+                "raw",
+                sharedSecret,
+                { name: "HKDF" },
+                false,
+                ["deriveKey"]
+            );
+            return await crypto.subtle.deriveKey(
+                {
+                    name: "HKDF",
+                    hash: "SHA-256",
+                    salt: new Uint8Array(32), // salt vacío (como Tink)
+                    info: new TextEncoder().encode("aes-gcm-key")
+                },
+                hkdfKey,
+                { name: "AES-GCM", length: 128 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        // Cifra un texto para un destinatario (devuelve Base64 del mensaje cifrado en formato Tink)
+        async function encryptFor(plainText, recipientPublicKeyBase64) {
+            // 1. Importar clave pública del destinatario
+            const recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
+
+            // 2. Generar par efímero
+            const ephemeralKeyPair = await generateKeyPair();
+
+            // 3. Derivar secreto compartido (ecdh)
+            const sharedSecret = await crypto.subtle.deriveBits(
+                { name: "ECDH", public: recipientPublicKey },
+                ephemeralKeyPair.privateKey,
+                256 // 32 bytes
+            );
+
+            // 4. Derivar clave AES
+            const aesKey = await deriveAesKey(sharedSecret);
+
+            // 5. Cifrar con AES-GCM (IV aleatorio de 12 bytes)
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encoder = new TextEncoder();
+            const ciphertext = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                aesKey,
+                encoder.encode(plainText)
+            );
+            // ciphertext incluye el tag de 16 bytes al final
+
+            // 6. Obtener clave pública efímera en formato uncompressed
+            const ephemeralUncompressed = await publicKeyToUncompressed(ephemeralKeyPair.publicKey);
+
+            // 7. Empaquetar: ephemeralUncompressed (65) + iv (12) + ciphertext
+            const ivBytes = new Uint8Array(iv);
+            const ciphertextBytes = new Uint8Array(ciphertext);
+            const totalLength = 65 + 12 + ciphertextBytes.length;
+            const packed = new Uint8Array(totalLength);
+            packed.set(ephemeralUncompressed, 0);
+            packed.set(ivBytes, 65);
+            packed.set(ciphertextBytes, 65 + 12);
+
+            // 8. Convertir a Base64
+            return btoa(String.fromCharCode(...packed));
+        }
+
+        // Descifra un mensaje (formato Tink) usando mi clave privada
+        async function decrypt(encryptedBase64) {
+            // 1. Decodificar Base64
+            const packed = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+
+            // 2. Extraer partes
+            const ephemeralUncompressed = packed.slice(0, 65);
+            const iv = packed.slice(65, 77);
+            const ciphertext = packed.slice(77);
+
+            // 3. Reconstruir clave pública efímera
+            const ephemeralPublicKey = await uncompressedToPublicKey(ephemeralUncompressed);
+
+            // 4. Derivar secreto compartido con mi clave privada
+            const sharedSecret = await crypto.subtle.deriveBits(
+                { name: "ECDH", public: ephemeralPublicKey },
+                myKeyPair.privateKey,
+                256
+            );
+
+            // 5. Derivar clave AES
+            const aesKey = await deriveAesKey(sharedSecret);
+
+            // 6. Descifrar
+            const plainBytes = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv },
+                aesKey,
+                ciphertext
+            );
+
+            return new TextDecoder().decode(plainBytes);
+        }
+
+        // ==================== GESTIÓN DE CLAVES PERSISTENTES ====================
         async function getOrCreateUserKeys(userId) {
-            const storageKey = `tink_keyset_${userId}`;
+            const storageKey = `crypto_keys_${userId}`;
             const stored = localStorage.getItem(storageKey);
             if (stored) {
                 try {
-                    console.log('Cargando claves existentes de localStorage');
-                    const keysetBytes = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
-                    myKeysetHandle = await KeysetHandle.fromBinary(keysetBytes);
+                    const { publicKeySpki, privateKeyJWK } = JSON.parse(stored);
+                    // Importar clave privada (para descifrar)
+                    const privateKey = await crypto.subtle.importKey(
+                        "jwk",
+                        privateKeyJWK,
+                        { name: "ECDH", namedCurve: "P-256" },
+                        true,
+                        ["deriveKey", "deriveBits"]
+                    );
+                    // Importar clave pública
+                    const publicKey = await importPublicKey(publicKeySpki);
+                    myKeyPair = { publicKey, privateKey };
+                    myPublicKeyBase64 = publicKeySpki;
+                    console.log('Claves cargadas desde localStorage');
                 } catch (e) {
                     console.warn('Error al recuperar claves, generando nuevas', e);
                     localStorage.removeItem(storageKey);
                 }
             }
-            if (!myKeysetHandle) {
-                console.log('Generando nuevo par de claves');
-                const template = HybridKeyTemplates.eciesP256HkdfHmacSha256Aes128Gcm();
-                myKeysetHandle = await KeysetHandle.generateKey(template);
-                // Guardar en localStorage (serializado con secret)
-                const keysetBytes = await myKeysetHandle.toBinary();
-                const b64 = btoa(String.fromCharCode(...keysetBytes));
-                localStorage.setItem(storageKey, b64);
+            if (!myKeyPair) {
+                console.log('Generando nuevo par de claves con Web Crypto');
+                const keyPair = await generateKeyPair();
+                myPublicKeyBase64 = await exportPublicKey(keyPair.publicKey);
+                // Exportar clave privada como JWK para almacenamiento
+                const privateKeyJWK = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+                localStorage.setItem(storageKey, JSON.stringify({
+                    publicKeySpki: myPublicKeyBase64,
+                    privateKeyJWK
+                }));
+                myKeyPair = keyPair;
+                console.log('Claves generadas y guardadas');
             }
-            // Extraer la clave pública (sin secret)
-            const publicHandle = myKeysetHandle.getPublicKeysetHandle();
-            const publicBytes = await publicHandle.toBinary(); // serialización pública
-            myPublicKeyBase64 = btoa(String.fromCharCode(...publicBytes));
-            console.log('Clave pública obtenida');
         }
 
-        async function encryptFor(plainText, recipientPublicKeyBase64) {
-            if (!recipientPublicKeyBase64) throw new Error('Clave pública del destinatario no disponible');
-            const publicBytes = Uint8Array.from(atob(recipientPublicKeyBase64), c => c.charCodeAt(0));
-            const publicHandle = await KeysetHandle.fromBinary(publicBytes, true); // true = solo público
-            const hybridEncrypt = await publicHandle.getPrimitive(HybridEncrypt);
-            const ciphertext = await hybridEncrypt.encrypt(new TextEncoder().encode(plainText));
-            return btoa(String.fromCharCode(...ciphertext));
-        }
-
-        async function decrypt(encryptedBase64) {
-            if (!myKeysetHandle) throw new Error('Clave privada no disponible');
-            const ciphertext = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-            const hybridDecrypt = await myKeysetHandle.getPrimitive(HybridDecrypt);
-            const plainBytes = await hybridDecrypt.decrypt(ciphertext);
-            return new TextDecoder().decode(plainBytes);
-        }
-
-        // ==================== FUNCIONES DE AUTENTICACIÓN (adaptadas) ====================
+        // ==================== FUNCIONES DE AUTENTICACIÓN ====================
         function setAuthStatus(message, isError = false) {
             const authStatusBar = document.getElementById('authStatusBar');
             authStatusBar.innerHTML = '';
@@ -757,7 +885,7 @@
             }
         }
 
-        // Registro con nombre de usuario
+        // Registro
         document.getElementById('btnDoRegister').addEventListener('click', async () => {
             const displayName = document.getElementById('regName').value.trim();
             const email = document.getElementById('regEmail').value.trim();
@@ -771,9 +899,7 @@
             try {
                 const cred = await createUserWithEmailAndPassword(auth, email, pass);
                 const uid = cred.user.uid;
-                // Generar claves para el nuevo usuario
                 await getOrCreateUserKeys(uid);
-                // Guardar usuario en DB con su clave pública
                 await set(ref(db, `users/${uid}`), {
                     email,
                     displayName,
@@ -834,14 +960,13 @@
                 panelAuth.classList.remove('active');
                 panelMain.classList.add('active');
 
-                // Cargar o generar claves para este usuario
+                // Cargar o generar claves
                 await getOrCreateUserKeys(user.uid);
 
                 // Asegurar que el nodo usuario existe y tiene la clave pública actualizada
                 const userRef = ref(db, `users/${user.uid}`);
                 const snapshot = await get(userRef);
                 if (!snapshot.exists()) {
-                    // Por si acaso (no debería ocurrir)
                     await set(userRef, {
                         email: user.email,
                         displayName: user.email.split('@')[0],
@@ -849,17 +974,14 @@
                         createdAt: serverTimestamp()
                     });
                 } else {
-                    // Actualizar la clave pública si ha cambiado (por si acaso)
                     const data = snapshot.val();
                     if (data.publicKey !== myPublicKeyBase64) {
                         await update(userRef, { publicKey: myPublicKeyBase64 });
                     }
-                    // Mostrar nombre
                     const displayName = data.displayName || user.email.split('@')[0];
                     userEmailSpan.textContent = `${displayName} (${user.email})`;
                 }
 
-                // Cargar lista de usuarios (contactos)
                 loadUsersList();
             } else {
                 userEmailSpan.textContent = 'Sin sesión';
@@ -870,7 +992,7 @@
                 document.getElementById('userList').innerHTML = '';
                 document.getElementById('contactsSubtitle').textContent = 'Inicia sesión para ver tus contactos.';
                 resetChatView();
-                myKeysetHandle = null;
+                myKeyPair = null;
                 myPublicKeyBase64 = null;
             }
         });
@@ -983,7 +1105,6 @@
             const uid2 = currentUser.uid > otherUid ? currentUser.uid : otherUid;
             currentConversationId = `${uid1}_${uid2}`;
 
-            // Crear nodo de chat si no existe (igual que Android)
             const chatRef = ref(db, `chats/${currentConversationId}`);
             const chatSnap = await get(chatRef);
             if (!chatSnap.exists()) {
@@ -1005,7 +1126,6 @@
             messagesContainer.appendChild(document.getElementById('chatPlaceholder'));
             lastMessageDate = null;
 
-            // Escuchar mensajes en messages/{chatId}
             const messagesRef = ref(db, `messages/${currentConversationId}`);
             unsubscribeMessages = onValue(messagesRef, async (snapshot) => {
                 try {
@@ -1019,7 +1139,6 @@
                     });
                     messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-                    // Procesar mensajes secuencialmente para mantener orden
                     for (const msg of messages) {
                         const decryptedText = await decryptMessage(msg);
                         renderMessageWithDate({ ...msg, decryptedText });
@@ -1048,10 +1167,8 @@
         async function decryptMessage(msg) {
             try {
                 if (msg.fromUserId === currentUser.uid) {
-                    // Mensaje enviado por mí: usar senderText
                     return await decrypt(msg.senderText);
                 } else {
-                    // Mensaje recibido: usar text
                     return await decrypt(msg.text);
                 }
             } catch (e) {
@@ -1114,18 +1231,15 @@
             document.getElementById('chatStatus').textContent = 'Enviando...';
 
             try {
-                // Obtener UID del destinatario a partir del ID de conversación
                 const recipientUid = currentConversationId.split('_').find(id => id !== currentUser.uid);
                 if (!recipientUid) throw new Error('No se pudo determinar el destinatario');
-                
+
                 const recipient = usersMap.get(recipientUid);
                 if (!recipient || !recipient.publicKey) {
                     throw new Error('Clave pública del destinatario no disponible');
                 }
 
-                // Cifrar para el destinatario
                 const encryptedForRecipient = await encryptFor(text, recipient.publicKey);
-                // Cifrar para mí mismo (con mi propia clave pública)
                 const encryptedForSender = await encryptFor(text, myPublicKeyBase64);
 
                 const message = {
@@ -1136,12 +1250,10 @@
                     timestamp: Date.now()
                 };
 
-                // Guardar en messages/{chatId}
                 const messagesRef = ref(db, `messages/${currentConversationId}`);
                 const newMsgRef = push(messagesRef);
                 await set(newMsgRef, message);
 
-                // Actualizar último mensaje en chats
                 const chatRef = ref(db, `chats/${currentConversationId}`);
                 await update(chatRef, {
                     lastMessage: 'Mensaje encriptado',
@@ -1155,17 +1267,14 @@
             }
         }
 
-        // Borrar conversación actual
         async function deleteCurrentChat() {
             if (!currentConversationId || !currentUser) return;
             if (!confirm('¿Estás seguro de que quieres borrar todos los mensajes de esta conversación?')) return;
 
             document.getElementById('chatStatus').textContent = 'Borrando mensajes...';
             try {
-                // Eliminar mensajes
                 const messagesRef = ref(db, `messages/${currentConversationId}`);
                 await set(messagesRef, null);
-                // Eliminar nodo de chat
                 const chatRef = ref(db, `chats/${currentConversationId}`);
                 await set(chatRef, null);
 
@@ -1186,7 +1295,7 @@
         });
         document.getElementById('btnDeleteChat').addEventListener('click', deleteCurrentChat);
 
-        // ==================== CAMBIO DE CONTRASEÑA (sin cambios) ====================
+        // ==================== CAMBIO DE CONTRASEÑA ====================
         const btnChangePassword = document.getElementById('btnChangePassword');
         const passwordModal = document.getElementById('passwordModal');
         const closePasswordModal = document.getElementById('closePasswordModal');
