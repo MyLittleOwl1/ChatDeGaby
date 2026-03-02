@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <title>MyChat Web (Android compatible)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Import map para tink-crypto (ES module) -->
+    <!-- Import map para tink-crypto desde unpkg (más fiable) -->
     <script type="importmap">
         {
             "imports": {
-                "tink-crypto": "https://cdn.skypack.dev/tink-crypto@2.0.0"
+                "tink-crypto": "https://unpkg.com/tink-crypto@2.0.0?module"
             }
         }
     </script>
@@ -659,7 +659,9 @@
         let myPublicKeyBase64 = null;       // Clave pública en base64 (para subir a Firebase)
 
         // ==================== INICIALIZACIÓN DE TINK ====================
-        await tink.HybridConfig.register();  // Registra los algoritmos híbridos
+        console.log('Registrando Tink Hybrid...');
+        await tink.HybridConfig.register();
+        console.log('Tink registrado');
 
         // ==================== FUNCIONES DE GESTIÓN DE CLAVES ====================
         async function getOrCreateUserKeys(userId) {
@@ -667,6 +669,7 @@
             const stored = localStorage.getItem(storageKey);
             if (stored) {
                 try {
+                    console.log('Cargando claves existentes de localStorage');
                     const keysetBytes = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
                     myKeysetHandle = await tink.KeysetHandle.fromBinary(keysetBytes);
                 } catch (e) {
@@ -675,7 +678,7 @@
                 }
             }
             if (!myKeysetHandle) {
-                // Generar nuevo par de claves con el mismo template que Android
+                console.log('Generando nuevo par de claves');
                 const template = tink.hybrid.HybridKeyTemplates.eciesP256HkdfHmacSha256Aes128Gcm();
                 myKeysetHandle = await tink.KeysetHandle.generateKey(template);
                 // Guardar en localStorage (serializado con secret)
@@ -687,6 +690,7 @@
             const publicHandle = myKeysetHandle.getPublicKeysetHandle();
             const publicBytes = await publicHandle.toBinary(); // serialización pública
             myPublicKeyBase64 = btoa(String.fromCharCode(...publicBytes));
+            console.log('Clave pública obtenida');
         }
 
         async function encryptFor(plainText, recipientPublicKeyBase64) {
@@ -1011,7 +1015,7 @@
                     });
                     messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-                    // Descifrar cada mensaje antes de mostrarlo
+                    // Procesar mensajes secuencialmente para mantener orden
                     for (const msg of messages) {
                         const decryptedText = await decryptMessage(msg);
                         renderMessageWithDate({ ...msg, decryptedText });
@@ -1047,7 +1051,7 @@
                     return await decrypt(msg.text);
                 }
             } catch (e) {
-                console.warn('Error al descifrar mensaje', e);
+                console.warn('Error al descifrar mensaje', e, msg);
                 return '[Mensaje cifrado no legible]';
             }
         }
@@ -1106,8 +1110,11 @@
             document.getElementById('chatStatus').textContent = 'Enviando...';
 
             try {
-                // Obtener clave pública del destinatario
-                const recipient = usersMap.get(currentConversationId.split('_').find(id => id !== currentUser.uid));
+                // Obtener UID del destinatario a partir del ID de conversación
+                const recipientUid = currentConversationId.split('_').find(id => id !== currentUser.uid);
+                if (!recipientUid) throw new Error('No se pudo determinar el destinatario');
+                
+                const recipient = usersMap.get(recipientUid);
                 if (!recipient || !recipient.publicKey) {
                     throw new Error('Clave pública del destinatario no disponible');
                 }
@@ -1119,7 +1126,7 @@
 
                 const message = {
                     fromUserId: currentUser.uid,
-                    toUserId: recipient.uid, // necesitamos el uid real
+                    toUserId: recipientUid,
                     text: encryptedForRecipient,
                     senderText: encryptedForSender,
                     timestamp: Date.now()
@@ -1176,7 +1183,6 @@
         document.getElementById('btnDeleteChat').addEventListener('click', deleteCurrentChat);
 
         // ==================== CAMBIO DE CONTRASEÑA (sin cambios) ====================
-        // (Mantengo el código original del modal, no necesita modificación)
         const btnChangePassword = document.getElementById('btnChangePassword');
         const passwordModal = document.getElementById('passwordModal');
         const closePasswordModal = document.getElementById('closePasswordModal');
