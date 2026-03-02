@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>MyChat Web (Web Crypto - compatible Android)</title>
+    <title>MyChat Web (Cifrado nativo - compatible Android)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         /* ========== ESTILOS ORIGINALES (sin cambios) ========== */
@@ -494,7 +494,7 @@
 <body>
     <div class="app">
         <header class="app-header">
-            <div class="app-title">MyChat Web (Android compatible)</div>
+            <div class="app-title">MyChat Web (Cifrado nativo - Android)</div>
             <div class="user-info">
                 <div class="user-email" id="userEmail">Sin sesión</div>
                 <div style="display: flex; gap: 6px; justify-content: flex-end;">
@@ -648,6 +648,9 @@
         let myKeyPair = null;          // { publicKey, privateKey } (CryptoKey)
         let myPublicKeyBase64 = null;  // clave pública en formato SPKI (Base64)
 
+        // Referencia al placeholder de chat (para evitar errores al limpiar)
+        const chatPlaceholderElement = document.getElementById('chatPlaceholder');
+
         // ==================== FUNCIONES CRIPTOGRÁFICAS (compatibles con Tink) ====================
         // Genera un par de claves ECDH en curva P-256
         async function generateKeyPair() {
@@ -678,10 +681,8 @@
 
         // Convierte una clave pública ECDH a formato uncompressed (0x04 + X + Y) de 65 bytes
         async function publicKeyToUncompressed(publicKey) {
-            // Exportar en formato raw (X e Y, 64 bytes)
             const raw = await crypto.subtle.exportKey("raw", publicKey);
             const rawBytes = new Uint8Array(raw);
-            // Añadir el byte 0x04 al inicio
             const uncompressed = new Uint8Array(65);
             uncompressed[0] = 0x04;
             uncompressed.set(rawBytes, 1);
@@ -691,7 +692,7 @@
         // Reconstruye una clave pública desde formato uncompressed (65 bytes)
         async function uncompressedToPublicKey(uncompressed) {
             if (uncompressed[0] !== 0x04) throw new Error('Formato uncompressed inválido');
-            const raw = uncompressed.slice(1); // 64 bytes (X e Y)
+            const raw = uncompressed.slice(1);
             return await crypto.subtle.importKey(
                 "raw",
                 raw,
@@ -703,7 +704,6 @@
 
         // Derivar clave AES-128-GCM usando HKDF-SHA256 a partir de un secreto compartido
         async function deriveAesKey(sharedSecret) {
-            // sharedSecret es de 32 bytes (256 bits) del ECDH
             const hkdfKey = await crypto.subtle.importKey(
                 "raw",
                 sharedSecret,
@@ -737,7 +737,7 @@
             const sharedSecret = await crypto.subtle.deriveBits(
                 { name: "ECDH", public: recipientPublicKey },
                 ephemeralKeyPair.privateKey,
-                256 // 32 bytes
+                256
             );
 
             // 4. Derivar clave AES
@@ -751,7 +751,6 @@
                 aesKey,
                 encoder.encode(plainText)
             );
-            // ciphertext incluye el tag de 16 bytes al final
 
             // 6. Obtener clave pública efímera en formato uncompressed
             const ephemeralUncompressed = await publicKeyToUncompressed(ephemeralKeyPair.publicKey);
@@ -809,7 +808,6 @@
             if (stored) {
                 try {
                     const { publicKeySpki, privateKeyJWK } = JSON.parse(stored);
-                    // Importar clave privada (para descifrar)
                     const privateKey = await crypto.subtle.importKey(
                         "jwk",
                         privateKeyJWK,
@@ -817,7 +815,6 @@
                         true,
                         ["deriveKey", "deriveBits"]
                     );
-                    // Importar clave pública
                     const publicKey = await importPublicKey(publicKeySpki);
                     myKeyPair = { publicKey, privateKey };
                     myPublicKeyBase64 = publicKeySpki;
@@ -831,7 +828,6 @@
                 console.log('Generando nuevo par de claves con Web Crypto');
                 const keyPair = await generateKeyPair();
                 myPublicKeyBase64 = await exportPublicKey(keyPair.publicKey);
-                // Exportar clave privada como JWK para almacenamiento
                 const privateKeyJWK = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
                 localStorage.setItem(storageKey, JSON.stringify({
                     publicKeySpki: myPublicKeyBase64,
@@ -960,10 +956,8 @@
                 panelAuth.classList.remove('active');
                 panelMain.classList.add('active');
 
-                // Cargar o generar claves
                 await getOrCreateUserKeys(user.uid);
 
-                // Asegurar que el nodo usuario existe y tiene la clave pública actualizada
                 const userRef = ref(db, `users/${user.uid}`);
                 const snapshot = await get(userRef);
                 if (!snapshot.exists()) {
@@ -1074,13 +1068,26 @@
             return div;
         }
 
-        // ==================== CHAT ====================
+        // ==================== CHAT (con placeholder corregido) ====================
         function resetChatView() {
             document.getElementById('chatAvatar').textContent = '?';
             document.getElementById('chatTitle').textContent = 'Sin conversación';
             document.getElementById('chatSubtitle').textContent = 'Selecciona un contacto para empezar a chatear.';
-            document.getElementById('chatMessages').innerHTML = '';
-            document.getElementById('chatMessages').appendChild(document.getElementById('chatPlaceholder'));
+
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.innerHTML = ''; // Limpia todo
+
+            // Reinsertar el placeholder de forma segura
+            if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                messagesContainer.appendChild(chatPlaceholderElement);
+            } else {
+                const newPlaceholder = document.createElement('div');
+                newPlaceholder.className = 'chat-placeholder';
+                newPlaceholder.id = 'chatPlaceholder';
+                newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                messagesContainer.appendChild(newPlaceholder);
+            }
+
             document.getElementById('msgInput').value = '';
             document.getElementById('msgInput').disabled = true;
             document.getElementById('btnSend').disabled = true;
@@ -1122,14 +1129,25 @@
 
             if (unsubscribeMessages) unsubscribeMessages();
             const messagesContainer = document.getElementById('chatMessages');
-            messagesContainer.innerHTML = '';
-            messagesContainer.appendChild(document.getElementById('chatPlaceholder'));
+            messagesContainer.innerHTML = ''; // Limpia
+
+            // Reinsertar placeholder (igual que en reset)
+            if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                messagesContainer.appendChild(chatPlaceholderElement);
+            } else {
+                const newPlaceholder = document.createElement('div');
+                newPlaceholder.className = 'chat-placeholder';
+                newPlaceholder.id = 'chatPlaceholder';
+                newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                messagesContainer.appendChild(newPlaceholder);
+            }
+
             lastMessageDate = null;
 
             const messagesRef = ref(db, `messages/${currentConversationId}`);
             unsubscribeMessages = onValue(messagesRef, async (snapshot) => {
                 try {
-                    messagesContainer.innerHTML = '';
+                    messagesContainer.innerHTML = ''; // Vuelve a limpiar para los mensajes nuevos
                     let hasMessages = false;
                     const messages = [];
                     snapshot.forEach((childSnapshot) => {
@@ -1145,7 +1163,16 @@
                     }
 
                     if (!hasMessages) {
-                        messagesContainer.appendChild(document.getElementById('chatPlaceholder'));
+                        // Si no hay mensajes, volver a poner el placeholder
+                        if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                            messagesContainer.appendChild(chatPlaceholderElement);
+                        } else {
+                            const newPlaceholder = document.createElement('div');
+                            newPlaceholder.className = 'chat-placeholder';
+                            newPlaceholder.id = 'chatPlaceholder';
+                            newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                            messagesContainer.appendChild(newPlaceholder);
+                        }
                     }
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 } catch (err) {
