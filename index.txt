@@ -19,3 +19,65 @@ const firebaseConfig = {
     messagingSenderId: "833008491572",
     appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
 };
+
+
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    "chats": {
+      "$chatId": {
+        ".read": "auth != null && auth.uid != null",
+        ".write": "auth != null && auth.uid != null"
+      }
+    },
+
+    "messages": {
+      "$chatId": {
+        "$msgId": {
+          ".read": "auth != null && auth.uid != null",
+          ".write": "auth != null && auth.uid != null"
+        }
+      }
+    }
+  }
+}
+
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null",
+      "$uid": {".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "messages": {
+      "$chatId": {
+        // Solo los participantes del chat pueden leer los mensajes
+        ".read": "auth != null && root.child('chats').child($chatId).child('participants').child(auth.uid).exists()",
+        // Solo los participantes pueden escribir mensajes
+        "$messageId": {
+          ".write": "auth != null && root.child('chats').child($chatId).child('participants').child(auth.uid).exists()"
+        }
+      }
+    },
+    "chats": {
+      "$chatId": {
+        // Solo los participantes pueden ver la información del chat (último mensaje, etc.)
+        ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
+        // Permite crear el chat o actualizar metadatos si eres participante
+        ".write": "auth != null && (
+          (!data.exists() && newData.child('participants').child(auth.uid).exists()) || 
+          (data.exists() && data.child('participants').child(auth.uid).exists())
+        )"
+      }
+    }
+  }
+}

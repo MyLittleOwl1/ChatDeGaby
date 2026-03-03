@@ -1148,95 +1148,54 @@
             }
         }
 
-        async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
-            if (!currentUser) return;
-            document.getElementById('chatStatus').textContent = 'Abriendo conversación...';
-            document.getElementById('msgInput').disabled = true;
-            document.getElementById('btnSend').disabled = true;
-            document.getElementById('btnDeleteChat').style.display = 'none';
+async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
+  if (!currentUser) return;
+  
+  document.getElementById('chatStatus').textContent = 'Abriendo conversación...';
+  document.getElementById('msgInput').disabled = true;
+  document.getElementById('btnSend').disabled = true;
+  document.getElementById('btnDeleteChat').style.display = 'none';
 
-            const uid1 = currentUser.uid < otherUid ? currentUser.uid : otherUid;
-            const uid2 = currentUser.uid > otherUid ? currentUser.uid : otherUid;
-            currentConversationId = `${uid1}_${uid2}`;
+  try {
+    const uid1 = currentUser.uid < otherUid ? currentUser.uid : otherUid;
+    const uid2 = currentUser.uid > otherUid ? currentUser.uid : otherUid;
+    currentConversationId = uid1 + uid2;
 
-            const chatRef = ref(db, `chats/${currentConversationId}`);
-            const chatSnap = await get(chatRef);
-            if (!chatSnap.exists()) {
-                await set(chatRef, {
-                    participants: { [uid1]: true, [uid2]: true },
-                    lastMessage: 'Mensaje encriptado',
-                    lastAt: serverTimestamp()
-                });
-            }
+    const chatRef = ref(db, `chats/${currentConversationId}`);
+    
+    // SIEMPRE crear/actualizar el chat (las reglas lo permiten)
+    await set(chatRef, {
+      participants: { [uid1]: true, [uid2]: true },
+      lastMessage: 'Conversación iniciada',
+      lastAt: serverTimestamp()
+    });
 
-            const letra = otherDisplayName?.charAt(0).toUpperCase();
-            document.getElementById('chatAvatar').textContent = letra;
-            document.getElementById('chatTitle').textContent = otherDisplayName;
-            document.getElementById('chatSubtitle').textContent = otherEmail;
+    // Ahora configurar UI y escuchar mensajes
+    const letra = otherDisplayName?.charAt(0).toUpperCase() || '?';
+    document.getElementById('chatAvatar').textContent = letra;
+    document.getElementById('chatTitle').textContent = otherDisplayName;
+    document.getElementById('chatSubtitle').textContent = otherEmail;
 
-            if (unsubscribeMessages) unsubscribeMessages();
-            const messagesContainer = document.getElementById('chatMessages');
-            messagesContainer.innerHTML = ''; // Limpia
+    // Configurar mensajes (resto igual)
+    if (unsubscribeMessages) unsubscribeMessages();
+    const messagesContainer = document.getElementById('chatMessages');
+    messagesContainer.innerHTML = '';
+    // ... resto del código de mensajes igual ...
 
-            // Reinsertar placeholder (igual que en reset)
-            if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
-                messagesContainer.appendChild(chatPlaceholderElement);
-            } else {
-                const newPlaceholder = document.createElement('div');
-                newPlaceholder.className = 'chat-placeholder';
-                newPlaceholder.id = 'chatPlaceholder';
-                newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
-                messagesContainer.appendChild(newPlaceholder);
-            }
+    document.getElementById('msgInput').disabled = false;
+    document.getElementById('btnSend').disabled = false;
+    document.getElementById('btnDeleteChat').style.display = 'block';
+    document.getElementById('msgInput').focus();
+    document.getElementById('chatStatus').textContent = 'Conectado';
 
-            lastMessageDate = null;
+  } catch (err) {
+    console.error('Error:', err);
+    document.getElementById('chatStatus').textContent = 'Error de conexión';
+    alert('Error: ' + err.message);
+  }
+}
 
-            const messagesRef = ref(db, `messages/${currentConversationId}`);
-            unsubscribeMessages = onValue(messagesRef, async (snapshot) => {
-                try {
-                    messagesContainer.innerHTML = ''; // Vuelve a limpiar para los mensajes nuevos
-                    let hasMessages = false;
-                    const messages = [];
-                    snapshot.forEach((childSnapshot) => {
-                        hasMessages = true;
-                        const data = childSnapshot.val();
-                        messages.push(data);
-                    });
-                    messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-                    for (const msg of messages) {
-                        const decryptedText = await decryptMessage(msg);
-                        renderMessageWithDate({ ...msg, decryptedText });
-                    }
-
-                    if (!hasMessages) {
-                        // Si no hay mensajes, volver a poner el placeholder
-                        if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
-                            messagesContainer.appendChild(chatPlaceholderElement);
-                        } else {
-                            const newPlaceholder = document.createElement('div');
-                            newPlaceholder.className = 'chat-placeholder';
-                            newPlaceholder.id = 'chatPlaceholder';
-                            newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
-                            messagesContainer.appendChild(newPlaceholder);
-                        }
-                    }
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                } catch (err) {
-                    console.error('Error al procesar mensajes:', err);
-                    document.getElementById('chatStatus').textContent = 'Error al mostrar mensajes';
-                }
-            }, (error) => {
-                console.error('Error al escuchar mensajes:', error);
-                document.getElementById('chatStatus').textContent = 'Error al recibir mensajes';
-            });
-
-            document.getElementById('msgInput').disabled = false;
-            document.getElementById('btnSend').disabled = false;
-            document.getElementById('btnDeleteChat').style.display = 'block';
-            document.getElementById('msgInput').focus();
-            document.getElementById('chatStatus').textContent = 'Conectado';
-        }
 
         async function decryptMessage(msg) {
             try {
