@@ -621,13 +621,13 @@
 
         // ==================== CONFIGURACIÓN DE FIREBASE ====================
         const firebaseConfig = {
-            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",                     // <-- REEMPLAZA
-            authDomain: "mychat-4fbf2.firebaseapp.com",
-            databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
-            projectId: "mychat-4fbf2",
-            storageBucket: "mychat-4fbf2.firebasestorage.app",
+            apiKey: "AIzaSyDg0MzNwiELhj637zX9C5lgBMQDIhDy9gM",
+            authDomain: "mychatweb-1eedf.firebaseapp.com",
+            databaseURL: "https://mychatweb-1eedf-default-rtdb.europe-west1.firebasedatabase.app/",
+            projectId: "mychatweb-1eedf",
+            storageBucket: "mychatweb-1eedf.firebasestorage.app",
             messagingSenderId: "828186176654",
-            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"                         // <-- REEMPLAZA
+            appId: "1:828186176654:web:40f80f9e5c495fba4aaddf"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -651,7 +651,8 @@
         // Referencia al placeholder de chat (para evitar errores al limpiar)
         const chatPlaceholderElement = document.getElementById('chatPlaceholder');
 
-        // ==================== FUNCIONES CRIPTOGRÁFICAS (compatibles con Tink) ====================
+        // ==================== FUNCIONES CRIPTOGRÁFICAS MEJORADAS ====================
+        
         // Genera un par de claves ECDH en curva P-256
         async function generateKeyPair() {
             return await crypto.subtle.generateKey(
@@ -667,16 +668,24 @@
             return btoa(String.fromCharCode(...new Uint8Array(spki)));
         }
 
-        // Importa una clave pública desde SPKI (Base64)
+        // Importa una clave pública desde SPKI (Base64) con validación
         async function importPublicKey(spkiBase64) {
-            const spki = Uint8Array.from(atob(spkiBase64), c => c.charCodeAt(0));
-            return await crypto.subtle.importKey(
-                "spki",
-                spki,
-                { name: "ECDH", namedCurve: "P-256" },
-                true,
-                []
-            );
+            if (!spkiBase64 || typeof spkiBase64 !== 'string') {
+                throw new Error('Clave pública inválida: no es una cadena');
+            }
+            try {
+                const spki = Uint8Array.from(atob(spkiBase64), c => c.charCodeAt(0));
+                return await crypto.subtle.importKey(
+                    "spki",
+                    spki,
+                    { name: "ECDH", namedCurve: "P-256" },
+                    true,
+                    []
+                );
+            } catch (e) {
+                console.error('Error al importar clave pública:', e);
+                throw new Error('La clave pública del destinatario no es válida');
+            }
         }
 
         // Convierte una clave pública ECDH a formato uncompressed (0x04 + X + Y) de 65 bytes
@@ -727,6 +736,15 @@
 
         // Cifra un texto para un destinatario (devuelve Base64 del mensaje cifrado en formato Tink)
         async function encryptFor(plainText, recipientPublicKeyBase64) {
+            if (!recipientPublicKeyBase64) {
+                throw new Error('Clave pública del destinatario no disponible');
+            }
+            
+            // Validar que la clave tenga el formato esperado (SPKI base64)
+            if (recipientPublicKeyBase64.length < 80) {
+                console.warn('Clave pública sospechosamente corta:', recipientPublicKeyBase64);
+            }
+
             // 1. Importar clave pública del destinatario
             const recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
 
@@ -969,7 +987,12 @@
                     });
                 } else {
                     const data = snapshot.val();
-                    if (data.publicKey !== myPublicKeyBase64) {
+                    // Si no tiene clave pública o está vacía, actualizar
+                    if (!data.publicKey || data.publicKey.length < 80) {
+                        console.log('Actualizando clave pública del usuario actual');
+                        await update(userRef, { publicKey: myPublicKeyBase64 });
+                    } else if (data.publicKey !== myPublicKeyBase64) {
+                        // Opcional: actualizar si cambió (por si regeneraste claves)
                         await update(userRef, { publicKey: myPublicKeyBase64 });
                     }
                     const displayName = data.displayName || user.email.split('@')[0];
@@ -991,7 +1014,7 @@
             }
         });
 
-        // ==================== CARGA DE USUARIOS ====================
+        // ==================== CARGA DE USUARIOS MEJORADA ====================
         function loadUsersList() {
             if (!currentUser) return;
             document.getElementById('contactsSubtitle').textContent = 'Cargando usuarios...';
@@ -1008,25 +1031,38 @@
                         const data = childSnapshot.val();
                         const uid = childSnapshot.key;
                         if (uid === currentUser.uid) return;
+                        
+                        // Verificar si tiene clave pública válida
+                        const publicKey = data.publicKey || '';
                         const displayName = data.displayName || data.email.split('@')[0];
+                        
+                        // Almacenar en el mapa aunque la clave sea inválida (para depuración)
                         usersMap.set(uid, {
                             displayName,
                             email: data.email,
-                            publicKey: data.publicKey || ''
+                            publicKey: publicKey
                         });
-                        users.push({ uid, displayName, email: data.email });
+                        
+                        users.push({ 
+                            uid, 
+                            displayName, 
+                            email: data.email,
+                            hasValidKey: publicKey && publicKey.length > 80 // heurística simple
+                        });
                     });
                     users.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
                     userListEl.innerHTML = '';
                     users.forEach(u => {
-                        const item = renderUserItem(u.uid, u.displayName, u.email);
+                        const item = renderUserItem(u.uid, u.displayName, u.email, u.hasValidKey);
                         userListEl.appendChild(item);
                     });
 
-                    document.getElementById('contactsSubtitle').textContent = users.length === 0
-                        ? 'No hay otros usuarios. Crea otra cuenta.'
-                        : `${users.length} usuarios disponibles.`;
+                    const total = users.length;
+                    const validKeys = users.filter(u => u.hasValidKey).length;
+                    document.getElementById('contactsSubtitle').textContent = total === 0 
+                        ? 'No hay otros usuarios. Crea otra cuenta.' 
+                        : `${total} usuarios disponibles (${validKeys} con clave válida)`;
                 } catch (err) {
                     console.error('Error procesando usuarios:', err);
                     document.getElementById('contactsSubtitle').textContent = 'Error al procesar usuarios.';
@@ -1037,29 +1073,40 @@
             });
         }
 
-        function renderUserItem(uid, displayName, email) {
+        // Renderizar usuario con indicador de clave válida
+        function renderUserItem(uid, displayName, email, hasValidKey) {
             const div = document.createElement('div');
             div.className = 'user-item';
             div.dataset.uid = uid;
             div.dataset.email = email;
             div.dataset.displayName = displayName;
+            
             const avatar = document.createElement('div');
             avatar.className = 'user-avatar';
             const letra = displayName?.charAt(0).toUpperCase() || '?';
             avatar.textContent = letra;
+            
             const meta = document.createElement('div');
             meta.className = 'user-meta';
+            
             const name = document.createElement('div');
             name.className = 'user-name';
             name.textContent = displayName;
+            
             const small = document.createElement('div');
             small.className = 'user-email-small';
-            small.textContent = email;
+            small.textContent = email + (hasValidKey ? '' : ' ⚠️ sin clave');
+            
             meta.appendChild(name);
             meta.appendChild(small);
             div.appendChild(avatar);
             div.appendChild(meta);
+            
             div.addEventListener('click', () => {
+                if (!hasValidKey) {
+                    alert('Este usuario no tiene una clave de cifrado válida. No podrás enviarle mensajes hasta que inicie sesión al menos una vez desde la app Android o esta web.');
+                    return;
+                }
                 const items = document.querySelectorAll('.user-item');
                 items.forEach(i => i.classList.remove('active'));
                 div.classList.add('active');
@@ -1248,11 +1295,13 @@
             document.getElementById('chatMessages').appendChild(bubble);
         }
 
+        // ==================== ENVÍO DE MENSAJES CON VALIDACIÓN ====================
         async function sendMessage() {
             if (!currentUser || !currentConversationId) return;
             const msgInput = document.getElementById('msgInput');
             const text = msgInput.value.trim();
             if (!text) return;
+            
             msgInput.value = '';
             msgInput.focus();
             document.getElementById('chatStatus').textContent = 'Enviando...';
@@ -1262,12 +1311,30 @@
                 if (!recipientUid) throw new Error('No se pudo determinar el destinatario');
 
                 const recipient = usersMap.get(recipientUid);
-                if (!recipient || !recipient.publicKey) {
-                    throw new Error('Clave pública del destinatario no disponible');
+                if (!recipient) throw new Error('Destinatario no encontrado en el mapa');
+                
+                if (!recipient.publicKey) {
+                    throw new Error('El destinatario no tiene una clave pública. Debe iniciar sesión al menos una vez para generar su clave.');
                 }
 
-                const encryptedForRecipient = await encryptFor(text, recipient.publicKey);
-                const encryptedForSender = await encryptFor(text, myPublicKeyBase64);
+                // Validar que la clave tenga el formato esperado
+                if (recipient.publicKey.length < 80) {
+                    console.warn('Clave pública del destinatario sospechosamente corta:', recipient.publicKey);
+                }
+
+                let encryptedForRecipient, encryptedForSender;
+                
+                try {
+                    encryptedForRecipient = await encryptFor(text, recipient.publicKey);
+                } catch (e) {
+                    throw new Error(`No se pudo cifrar para el destinatario: ${e.message}`);
+                }
+                
+                try {
+                    encryptedForSender = await encryptFor(text, myPublicKeyBase64);
+                } catch (e) {
+                    throw new Error(`No se pudo cifrar para ti mismo: ${e.message}`);
+                }
 
                 const message = {
                     fromUserId: currentUser.uid,
@@ -1289,8 +1356,10 @@
 
                 document.getElementById('chatStatus').textContent = 'Conectado';
             } catch (err) {
-                console.error(err);
-                document.getElementById('chatStatus').textContent = 'Error al enviar';
+                console.error('Error al enviar mensaje:', err);
+                document.getElementById('chatStatus').textContent = 'Error: ' + err.message;
+                // Mostrar alerta para que el usuario entienda el problema
+                alert('No se pudo enviar el mensaje: ' + err.message);
             }
         }
 
