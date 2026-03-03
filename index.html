@@ -1256,71 +1256,68 @@ async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
 
         // ==================== ENVÍO DE MENSAJES CON VALIDACIÓN ====================
         async function sendMessage() {
-            if (!currentUser || !currentConversationId) return;
-            const msgInput = document.getElementById('msgInput');
-            const text = msgInput.value.trim();
-            if (!text) return;
-            
-            msgInput.value = '';
-            msgInput.focus();
-            document.getElementById('chatStatus').textContent = 'Enviando...';
+  if (!currentUser || !currentConversationId) return;
+  
+  const msgInput = document.getElementById('msgInput');
+  const text = msgInput.value.trim();
+  if (!text) return;
+  
+  msgInput.value = '';
+  msgInput.focus();
+  document.getElementById('chatStatus').textContent = 'Enviando...';
 
-            try {
-                const recipientUid = currentConversationId.split('_').find(id => id !== currentUser.uid);
-                if (!recipientUid) throw new Error('No se pudo determinar el destinatario');
+  try {
+    // EXTRAER recipientUid del currentConversationId (uid1uid2)
+    const uid1 = currentConversationId.substring(0, 28);  // Primer UID (28 chars típicos)
+    const uid2 = currentConversationId.substring(28);     // Segundo UID
+    const recipientUid = currentUser.uid === uid1 ? uid2 : uid1;
+    
+    console.log('currentUser.uid:', currentUser.uid);
+    console.log('currentConversationId:', currentConversationId);
+    console.log('recipientUid calculado:', recipientUid);
 
-                const recipient = usersMap.get(recipientUid);
-                if (!recipient) throw new Error('Destinatario no encontrado en el mapa');
-                
-                if (!recipient.publicKey) {
-                    throw new Error('El destinatario no tiene una clave pública. Debe iniciar sesión al menos una vez para generar su clave.');
-                }
+    const recipient = usersMap.get(recipientUid);
+    if (!recipient) {
+      throw new Error(`Destinatario ${recipientUid} no encontrado en usersMap. Recarga la lista de usuarios.`);
+    }
+    
+    if (!recipient.publicKey || recipient.publicKey.length < 80) {
+      throw new Error('El destinatario no tiene clave pública válida. Debe iniciar sesión primero.');
+    }
 
-                // Validar que la clave tenga el formato esperado
-                if (recipient.publicKey.length < 80) {
-                    console.warn('Clave pública del destinatario sospechosamente corta:', recipient.publicKey);
-                }
+    // Cifrar mensaje
+    const encryptedForRecipient = await encryptFor(text, recipient.publicKey);
+    const encryptedForSender = await encryptFor(text, myPublicKeyBase64);
 
-                let encryptedForRecipient, encryptedForSender;
-                
-                try {
-                    encryptedForRecipient = await encryptFor(text, recipient.publicKey);
-                } catch (e) {
-                    throw new Error(`No se pudo cifrar para el destinatario: ${e.message}`);
-                }
-                
-                try {
-                    encryptedForSender = await encryptFor(text, myPublicKeyBase64);
-                } catch (e) {
-                    throw new Error(`No se pudo cifrar para ti mismo: ${e.message}`);
-                }
+    const message = {
+      fromUserId: currentUser.uid,
+      toUserId: recipientUid,
+      text: encryptedForRecipient,
+      senderText: encryptedForSender,
+      timestamp: Date.now()
+    };
 
-                const message = {
-                    fromUserId: currentUser.uid,
-                    toUserId: recipientUid,
-                    text: encryptedForRecipient,
-                    senderText: encryptedForSender,
-                    timestamp: Date.now()
-                };
+    // Guardar mensaje
+    const messagesRef = ref(db, `messages/${currentConversationId}`);
+    const newMsgRef = push(messagesRef);
+    await set(newMsgRef, message);
 
-                const messagesRef = ref(db, `messages/${currentConversationId}`);
-                const newMsgRef = push(messagesRef);
-                await set(newMsgRef, message);
+    // Actualizar chat
+    const chatRef = ref(db, `chats/${currentConversationId}`);
+    await update(chatRef, {
+      lastMessage: 'Mensaje encriptado',
+      lastAt: serverTimestamp()
+    });
 
-                const chatRef = ref(db, `chats/${currentConversationId}`);
-                await update(chatRef, {
-                    lastMessage: 'Mensaje encriptado',
-                    lastAt: serverTimestamp()
-                });
+    document.getElementById('chatStatus').textContent = 'Conectado';
 
-                document.getElementById('chatStatus').textContent = 'Conectado';
-            } catch (err) {
-                console.error('Error al enviar mensaje:', err);
-                document.getElementById('chatStatus').textContent = 'Error: ' + err.message;
-                // Mostrar alerta para que el usuario entienda el problema
-                alert('No se pudo enviar el mensaje: ' + err.message);
-            }
-        }
+  } catch (err) {
+    console.error('Error al enviar mensaje:', err);
+    document.getElementById('chatStatus').textContent = 'Error';
+    alert('No se pudo enviar: ' + err.message);
+  }
+}
+
 
         async function deleteCurrentChat() {
             if (!currentConversationId || !currentUser) return;
