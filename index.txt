@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>MyChat Web (Cifrado nativo - compatible Android)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* ========== ESTILOS ORIGINALES (sin cambios) ========== */
+        :root {
+            --color-primary: #075e54;
+            --color-primary-dark: #054c43;
+            --color-accent: #25d366;
+            --color-bg: #0b141a;
+            --color-bg-light: #202c33;
+            --color-text: #e9edef;
+            --color-muted: #8696a0;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: radial-gradient(circle at top left, #202c33, #0b141a);
+            color: var(--color-text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .app {
+            width: 100%;
+            max-width: 900px;
+            background: rgba(12, 19, 23, 0.96);
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+            border: 1px solid #202c33;
+            display: flex;
+            flex-direction: column;
+        }
+        .app-header {
+            background: linear-gradient(120deg, var(--color-primary-dark), var(--color-primary));
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #fff;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .app-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+        .user-info {
+            font-size: 0.78rem;
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+        .user-email {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.5);
+            color: #fff;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+        .btn-ghost:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .btn-change-password {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: #fff;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+        .btn-change-password:hover {
+            background: rgba(255,255,255,0.25);
+        }
+        .app-body {
+            display: flex;
+            min-height: 520px;
+            max-height: 620px;
+            background: url('https://www.transparenttextures.com/patterns/stardust.png'), var(--color-bg);
+        }
+        .panel-auth {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+        }
+        .panel-auth.active {
+            display: flex;
+        }
+        .auth-tabs {
+            display: flex;
+            margin: 12px 16px 0;
+            border-radius: 999px;
+            background: rgba(32,44,51,0.9);
+            padding: 3px;
+        }
+        .auth-tab {
+            flex: 1;
+            text-align: center;
+            padding: 6px 0;
+            font-size: 0.85rem;
+            border-radius: 999px;
+            cursor: pointer;
+            color: var(--color-muted);
+            transition: background 0.2s, color 0.2s;
+        }
+        .auth-tab.active {
+            background: #fff;
+            color: #111b21;
+            font-weight: 600;
+        }
+        .auth-forms {
+            padding: 12px 16px 16px;
+            overflow-y: auto;
+        }
+        .field-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--color-muted);
+            margin-bottom: 4px;
+        }
+        input[type="email"], input[type="password"], input[type="text"] {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #202c33;
+            background: #111b21;
+            color: var(--color-text);
+            font-size: 0.9rem;
+        }
+        input::placeholder {
+            color: #64707a;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 9px 0;
+            border-radius: 999px;
+            border: none;
+            background: var(--color-accent);
+            color: #111b21;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+        .hint {
+            font-size: 0.75rem;
+            color: var(--color-muted);
+            margin-top: 6px;
+        }
+        .status-bar {
+            font-size: 0.78rem;
+            padding: 6px 12px;
+            min-height: 22px;
+            border-top: 1px solid #202c33;
+            color: var(--color-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-bar span.error {
+            color: #f15c6c;
+        }
+        .panel-main {
+            flex: 1;
+            display: none;
+            min-height: 0;
+        }
+        .panel-main.active {
+            display: flex;
+        }
+        .sidebar {
+            width: 38%;
+            min-width: 220px;
+            border-right: 1px solid #202c33;
+            display: flex;
+            flex-direction: column;
+            background: rgba(17,27,33,0.98);
+        }
+        .sidebar-header {
+            padding: 10px 12px;
+            border-bottom: 1px solid #202c33;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .sidebar-subtitle {
+            font-size: 0.75rem;
+            color: var(--color-muted);
+        }
+        .user-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 4px 6px;
+        }
+        .user-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            gap: 8px;
+        }
+        .user-item:hover {
+            background: #202c33;
+        }
+        .user-item.active {
+            background: #202c33;
+        }
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #202c33;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            color: var(--color-accent);
+            font-weight: 600;
+        }
+        .user-meta {
+            flex: 1;
+            min-width: 0;
+        }
+        .user-name {
+            font-size: 0.85rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .user-email-small {
+            font-size: 0.72rem;
+            color: var(--color-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: url('https://www.transparenttextures.com/patterns/stardust.png'), var(--color-bg);
+        }
+        .chat-header {
+            padding: 10px 12px;
+            border-bottom: 1px solid #202c33;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(32,44,51,0.95);
+        }
+        .chat-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #202c33;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            color: var(--color-accent);
+            font-weight: 700;
+        }
+        .chat-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .chat-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-subtitle {
+            font-size: 0.78rem;
+            color: var(--color-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .btn-delete-chat {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .btn-delete-chat:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .btn-delete-chat svg {
+            width: 18px;
+            height: 18px;
+            fill: var(--color-muted);
+        }
+        .btn-delete-chat:hover svg {
+            fill: #f15c6c;
+        }
+        .chat-messages {
+            flex: 1;
+            padding: 10px 8px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .bubble {
+            max-width: 80%;
+            padding: 6px 8px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            line-height: 1.3;
+            position: relative;
+            word-wrap: break-word;
+        }
+        .bubble.me {
+            align-self: flex-end;
+            background: #005c4b;
+            border-bottom-right-radius: 2px;
+        }
+        .bubble.other {
+            align-self: flex-start;
+            background: #202c33;
+            border-bottom-left-radius: 2px;
+        }
+        .bubble-meta {
+            font-size: 0.7rem;
+            color: var(--color-muted);
+            text-align: right;
+            margin-top: 2px;
+        }
+        .date-separator {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--color-muted);
+            background: rgba(32,44,51,0.7);
+            padding: 4px 8px;
+            border-radius: 16px;
+            margin: 8px 0 4px;
+            align-self: center;
+            border: 1px solid #202c33;
+            backdrop-filter: blur(2px);
+        }
+        .chat-input-bar {
+            display: flex;
+            padding: 6px 8px;
+            gap: 6px;
+            background: rgba(17,27,33,0.98);
+            border-top: 1px solid #202c33;
+        }
+        .chat-input-bar input[type="text"] {
+            flex: 1;
+            border-radius: 999px;
+            padding-inline: 12px;
+            background: #202c33;
+            border-color: #202c33;
+            font-size: 0.9rem;
+        }
+        .btn-send {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: var(--color-accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .btn-send svg {
+            width: 18px;
+            height: 18px;
+            fill: #111b21;
+        }
+        .chat-placeholder {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--color-muted);
+            font-size: 0.84rem;
+            padding: 0 24px;
+            text-align: center;
+        }
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: #00a884;
+            flex-shrink: 0;
+        }
+        #chatStatus {
+            flex: 1;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal-content {
+            background: #1e2a32;
+            border-radius: 16px;
+            padding: 20px;
+            width: 90%;
+            max-width: 360px;
+            border: 1px solid #202c33;
+            box-shadow: 0 12px 30px black;
+        }
+        .modal-content h3 {
+            margin-bottom: 16px;
+            color: var(--color-text);
+        }
+        .modal-content .field-group {
+            margin-bottom: 14px;
+        }
+        .modal-content .btn-primary {
+            margin-top: 8px;
+        }
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--color-muted);
+            float: right;
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+        @media (max-width: 720px) {
+            .app {
+                height: 100vh;
+                max-width: 100%;
+                border-radius: 0;
+            }
+            .app-body {
+                flex-direction: column;
+            }
+            .sidebar {
+                display: none;
+            }
+            .panel-main.active .sidebar {
+                display: none;
+            }
+            .panel-main.active .chat-area {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="app-header">
+            <div class="app-title">MyChat Web (Cifrado nativo - Android)</div>
+            <div class="user-info">
+                <div class="user-email" id="userEmail">Sin sesión</div>
+                <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                    <button class="btn-change-password" id="btnChangePassword" style="display:none">Cambiar contraseña</button>
+                    <button class="btn-ghost" id="btnLogout" style="display:none">Cerrar sesión</button>
+                </div>
+            </div>
+        </header>
+        <main class="app-body">
+            <!-- AUTENTICACIÓN -->
+            <section class="panel-auth active" id="panelAuth">
+                <div class="auth-tabs">
+                    <div class="auth-tab active" id="tabLogin">Iniciar sesión</div>
+                    <div class="auth-tab" id="tabRegister">Crear cuenta</div>
+                </div>
+                <div class="auth-forms">
+                    <!-- Login -->
+                    <div id="formLogin">
+                        <div class="field-group">
+                            <label for="loginEmail">Email</label>
+                            <input type="email" id="loginEmail" placeholder="tucorreo@ejemplo.com">
+                        </div>
+                        <div class="field-group">
+                            <label for="loginPassword">Contraseña</label>
+                            <input type="password" id="loginPassword" placeholder="Tu contraseña">
+                        </div>
+                        <button class="btn-primary" id="btnDoLogin">Entrar</button>
+                        <p class="hint">Accede con tu cuenta para ver tus contactos y chats.</p>
+                    </div>
+                    <!-- Registro (con nombre de usuario) -->
+                    <div id="formRegister" style="display:none">
+                        <div class="field-group">
+                            <label for="regName">Nombre de usuario</label>
+                            <input type="text" id="regName" placeholder="Ej: Juan Pérez" autocomplete="off">
+                        </div>
+                        <div class="field-group">
+                            <label for="regEmail">Email</label>
+                            <input type="email" id="regEmail" placeholder="tucorreo@ejemplo.com">
+                        </div>
+                        <div class="field-group">
+                            <label for="regPassword">Contraseña</label>
+                            <input type="password" id="regPassword" placeholder="Mínimo 6 caracteres">
+                        </div>
+                        <button class="btn-primary" id="btnDoRegister">Crear cuenta</button>
+                        <p class="hint">Se creará tu ficha de usuario con el nombre elegido.</p>
+                    </div>
+                </div>
+                <div class="status-bar" id="authStatusBar"></div>
+            </section>
+            <!-- PANEL PRINCIPAL: USUARIOS + CHAT -->
+            <section class="panel-main" id="panelMain">
+                <aside class="sidebar">
+                    <div class="sidebar-header">
+                        <div>
+                            <div class="sidebar-title">Contactos</div>
+                            <div class="sidebar-subtitle" id="contactsSubtitle">Cargando usuarios...</div>
+                        </div>
+                    </div>
+                    <div class="user-list" id="userList"></div>
+                </aside>
+                <section class="chat-area">
+                    <div class="chat-header">
+                        <div class="chat-avatar" id="chatAvatar">?</div>
+                        <div class="chat-info">
+                            <div class="chat-title" id="chatTitle">Sin conversación</div>
+                            <div class="chat-subtitle" id="chatSubtitle">Selecciona un contacto para empezar a chatear.</div>
+                        </div>
+                        <button class="btn-delete-chat" id="btnDeleteChat" style="display:none" title="Borrar conversación">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="chat-placeholder" id="chatPlaceholder">
+                            Selecciona un usuario en la lista de contactos para abrir un chat privado.
+                            Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.
+                        </div>
+                    </div>
+                    <div class="chat-input-bar">
+                        <input type="text" id="msgInput" placeholder="Escribe un mensaje..." disabled>
+                        <button class="btn-send" id="btnSend" disabled>
+                            <svg viewBox="0 0 24 24">
+                                <path d="M3.4 20.6L20.3 12 3.4 3.4 3.3 10.8 14.5 12 3.3 13.2z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="status-bar">
+                        <div class="status-dot"></div>
+                        <span id="chatStatus">Conectado</span>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal para cambio de contraseña -->
+    <div class="modal-overlay" id="passwordModal">
+        <div class="modal-content">
+            <button class="modal-close" id="closePasswordModal">&times;</button>
+            <h3>Cambiar contraseña</h3>
+            <div class="field-group">
+                <label for="currentPassword">Contraseña actual</label>
+                <input type="password" id="currentPassword" placeholder="********">
+            </div>
+            <div class="field-group">
+                <label for="newPassword">Nueva contraseña (mín. 6 caracteres)</label>
+                <input type="password" id="newPassword" placeholder="********">
+            </div>
+            <div class="field-group">
+                <label for="confirmPassword">Confirmar nueva contraseña</label>
+                <input type="password" id="confirmPassword" placeholder="********">
+            </div>
+            <button class="btn-primary" id="btnUpdatePassword">Actualizar contraseña</button>
+            <p class="hint" id="passwordStatus" style="margin-top: 8px;"></p>
+        </div>
+    </div>
+
+    <script type="module">
+        // ==================== IMPORTACIONES ====================
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getDatabase, ref, set, get, update, onValue, push, serverTimestamp, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        // ==================== CONFIGURACIÓN DE FIREBASE ====================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",                     // <-- REEMPLAZA
+            authDomain: "mychat-4fbf2.firebaseapp.com",
+            databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
+            projectId: "mychat-4fbf2",
+            storageBucket: "mychat-4fbf2.firebasestorage.app",
+            messagingSenderId: "828186176654",
+            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"                         // <-- REEMPLAZA
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // ==================== VARIABLES GLOBALES ====================
+        let currentUser = null;
+        let currentConversationId = null;
+        let unsubscribeUsers = null;
+        let unsubscribeMessages = null;
+        let lastMessageDate = null;
+
+        // Mapa de usuarios (uid -> { displayName, email, publicKey })
+        const usersMap = new Map();
+
+        // Claves criptográficas (Web Crypto)
+        let myKeyPair = null;          // { publicKey, privateKey } (CryptoKey)
+        let myPublicKeyBase64 = null;  // clave pública en formato SPKI (Base64)
+
+        // Referencia al placeholder de chat (para evitar errores al limpiar)
+        const chatPlaceholderElement = document.getElementById('chatPlaceholder');
+
+        // ==================== FUNCIONES CRIPTOGRÁFICAS (compatibles con Tink) ====================
+        // Genera un par de claves ECDH en curva P-256
+        async function generateKeyPair() {
+            return await crypto.subtle.generateKey(
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                ["deriveKey", "deriveBits"]
+            );
+        }
+
+        // Exporta la clave pública a formato SPKI (Base64)
+        async function exportPublicKey(publicKey) {
+            const spki = await crypto.subtle.exportKey("spki", publicKey);
+            return btoa(String.fromCharCode(...new Uint8Array(spki)));
+        }
+
+        // Importa una clave pública desde SPKI (Base64)
+        async function importPublicKey(spkiBase64) {
+            const spki = Uint8Array.from(atob(spkiBase64), c => c.charCodeAt(0));
+            return await crypto.subtle.importKey(
+                "spki",
+                spki,
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
+            );
+        }
+
+        // Convierte una clave pública ECDH a formato uncompressed (0x04 + X + Y) de 65 bytes
+        async function publicKeyToUncompressed(publicKey) {
+            const raw = await crypto.subtle.exportKey("raw", publicKey);
+            const rawBytes = new Uint8Array(raw);
+            const uncompressed = new Uint8Array(65);
+            uncompressed[0] = 0x04;
+            uncompressed.set(rawBytes, 1);
+            return uncompressed;
+        }
+
+        // Reconstruye una clave pública desde formato uncompressed (65 bytes)
+        async function uncompressedToPublicKey(uncompressed) {
+            if (uncompressed[0] !== 0x04) throw new Error('Formato uncompressed inválido');
+            const raw = uncompressed.slice(1);
+            return await crypto.subtle.importKey(
+                "raw",
+                raw,
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
+            );
+        }
+
+        // Derivar clave AES-128-GCM usando HKDF-SHA256 a partir de un secreto compartido
+        async function deriveAesKey(sharedSecret) {
+            const hkdfKey = await crypto.subtle.importKey(
+                "raw",
+                sharedSecret,
+                { name: "HKDF" },
+                false,
+                ["deriveKey"]
+            );
+            return await crypto.subtle.deriveKey(
+                {
+                    name: "HKDF",
+                    hash: "SHA-256",
+                    salt: new Uint8Array(32), // salt vacío (como Tink)
+                    info: new TextEncoder().encode("aes-gcm-key")
+                },
+                hkdfKey,
+                { name: "AES-GCM", length: 128 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        // Cifra un texto para un destinatario (devuelve Base64 del mensaje cifrado en formato Tink)
+        async function encryptFor(plainText, recipientPublicKeyBase64) {
+            // 1. Importar clave pública del destinatario
+            const recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
+
+            // 2. Generar par efímero
+            const ephemeralKeyPair = await generateKeyPair();
+
+            // 3. Derivar secreto compartido (ecdh)
+            const sharedSecret = await crypto.subtle.deriveBits(
+                { name: "ECDH", public: recipientPublicKey },
+                ephemeralKeyPair.privateKey,
+                256
+            );
+
+            // 4. Derivar clave AES
+            const aesKey = await deriveAesKey(sharedSecret);
+
+            // 5. Cifrar con AES-GCM (IV aleatorio de 12 bytes)
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encoder = new TextEncoder();
+            const ciphertext = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                aesKey,
+                encoder.encode(plainText)
+            );
+
+            // 6. Obtener clave pública efímera en formato uncompressed
+            const ephemeralUncompressed = await publicKeyToUncompressed(ephemeralKeyPair.publicKey);
+
+            // 7. Empaquetar: ephemeralUncompressed (65) + iv (12) + ciphertext
+            const ivBytes = new Uint8Array(iv);
+            const ciphertextBytes = new Uint8Array(ciphertext);
+            const totalLength = 65 + 12 + ciphertextBytes.length;
+            const packed = new Uint8Array(totalLength);
+            packed.set(ephemeralUncompressed, 0);
+            packed.set(ivBytes, 65);
+            packed.set(ciphertextBytes, 65 + 12);
+
+            // 8. Convertir a Base64
+            return btoa(String.fromCharCode(...packed));
+        }
+
+        // Descifra un mensaje (formato Tink) usando mi clave privada
+        async function decrypt(encryptedBase64) {
+            // 1. Decodificar Base64
+            const packed = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+
+            // 2. Extraer partes
+            const ephemeralUncompressed = packed.slice(0, 65);
+            const iv = packed.slice(65, 77);
+            const ciphertext = packed.slice(77);
+
+            // 3. Reconstruir clave pública efímera
+            const ephemeralPublicKey = await uncompressedToPublicKey(ephemeralUncompressed);
+
+            // 4. Derivar secreto compartido con mi clave privada
+            const sharedSecret = await crypto.subtle.deriveBits(
+                { name: "ECDH", public: ephemeralPublicKey },
+                myKeyPair.privateKey,
+                256
+            );
+
+            // 5. Derivar clave AES
+            const aesKey = await deriveAesKey(sharedSecret);
+
+            // 6. Descifrar
+            const plainBytes = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv },
+                aesKey,
+                ciphertext
+            );
+
+            return new TextDecoder().decode(plainBytes);
+        }
+
+        // ==================== GESTIÓN DE CLAVES PERSISTENTES ====================
+        async function getOrCreateUserKeys(userId) {
+            const storageKey = `crypto_keys_${userId}`;
+            const stored = localStorage.getItem(storageKey);
+            if (stored) {
+                try {
+                    const { publicKeySpki, privateKeyJWK } = JSON.parse(stored);
+                    const privateKey = await crypto.subtle.importKey(
+                        "jwk",
+                        privateKeyJWK,
+                        { name: "ECDH", namedCurve: "P-256" },
+                        true,
+                        ["deriveKey", "deriveBits"]
+                    );
+                    const publicKey = await importPublicKey(publicKeySpki);
+                    myKeyPair = { publicKey, privateKey };
+                    myPublicKeyBase64 = publicKeySpki;
+                    console.log('Claves cargadas desde localStorage');
+                } catch (e) {
+                    console.warn('Error al recuperar claves, generando nuevas', e);
+                    localStorage.removeItem(storageKey);
+                }
+            }
+            if (!myKeyPair) {
+                console.log('Generando nuevo par de claves con Web Crypto');
+                const keyPair = await generateKeyPair();
+                myPublicKeyBase64 = await exportPublicKey(keyPair.publicKey);
+                const privateKeyJWK = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+                localStorage.setItem(storageKey, JSON.stringify({
+                    publicKeySpki: myPublicKeyBase64,
+                    privateKeyJWK
+                }));
+                myKeyPair = keyPair;
+                console.log('Claves generadas y guardadas');
+            }
+        }
+
+        // ==================== FUNCIONES DE AUTENTICACIÓN ====================
+        function setAuthStatus(message, isError = false) {
+            const authStatusBar = document.getElementById('authStatusBar');
+            authStatusBar.innerHTML = '';
+            if (!message) return;
+            const span = document.createElement('span');
+            span.textContent = message;
+            if (isError) span.classList.add('error');
+            authStatusBar.appendChild(span);
+        }
+
+        function switchToLogin() {
+            document.getElementById('tabLogin').classList.add('active');
+            document.getElementById('tabRegister').classList.remove('active');
+            document.getElementById('formLogin').style.display = 'block';
+            document.getElementById('formRegister').style.display = 'none';
+            setAuthStatus();
+        }
+
+        function switchToRegister() {
+            document.getElementById('tabRegister').classList.add('active');
+            document.getElementById('tabLogin').classList.remove('active');
+            document.getElementById('formLogin').style.display = 'none';
+            document.getElementById('formRegister').style.display = 'block';
+            setAuthStatus();
+        }
+
+        document.getElementById('tabLogin').addEventListener('click', switchToLogin);
+        document.getElementById('tabRegister').addEventListener('click', switchToRegister);
+
+        function traducirErrorAuth(code) {
+            switch (code) {
+                case 'auth/email-already-in-use': return 'El email ya está registrado.';
+                case 'auth/invalid-email': return 'El formato de email no es válido.';
+                case 'auth/weak-password': return 'La contraseña es demasiado débil (mínimo 6 caracteres).';
+                case 'auth/user-not-found':
+                case 'auth/wrong-password': return 'Email o contraseña incorrectos.';
+                case 'auth/too-many-requests': return 'Demasiados intentos. Espera un momento.';
+                case 'auth/configuration-not-found': return 'Authentication no está correctamente configurado en Firebase.';
+                default: return `Error de autenticación: ${code}`;
+            }
+        }
+
+        // Registro
+        document.getElementById('btnDoRegister').addEventListener('click', async () => {
+            const displayName = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const pass = document.getElementById('regPassword').value.trim();
+            if (!displayName || !email || !pass) {
+                setAuthStatus('Introduce nombre, email y contraseña.', true);
+                return;
+            }
+            document.getElementById('btnDoRegister').disabled = true;
+            setAuthStatus('Creando cuenta...');
+            try {
+                const cred = await createUserWithEmailAndPassword(auth, email, pass);
+                const uid = cred.user.uid;
+                await getOrCreateUserKeys(uid);
+                await set(ref(db, `users/${uid}`), {
+                    email,
+                    displayName,
+                    publicKey: myPublicKeyBase64,
+                    createdAt: serverTimestamp()
+                });
+                setAuthStatus('Cuenta creada correctamente.');
+            } catch (err) {
+                console.error(err);
+                setAuthStatus(traducirErrorAuth(err.code), true);
+            } finally {
+                document.getElementById('btnDoRegister').disabled = false;
+            }
+        });
+
+        // Login
+        document.getElementById('btnDoLogin').addEventListener('click', async () => {
+            const email = document.getElementById('loginEmail').value.trim();
+            const pass = document.getElementById('loginPassword').value.trim();
+            if (!email || !pass) {
+                setAuthStatus('Introduce email y contraseña.', true);
+                return;
+            }
+            document.getElementById('btnDoLogin').disabled = true;
+            setAuthStatus('Iniciando sesión...');
+            try {
+                await signInWithEmailAndPassword(auth, email, pass);
+                setAuthStatus('Sesión iniciada.');
+            } catch (err) {
+                console.error(err);
+                setAuthStatus(traducirErrorAuth(err.code), true);
+            } finally {
+                document.getElementById('btnDoLogin').disabled = false;
+            }
+        });
+
+        // Logout
+        document.getElementById('btnLogout').addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // ==================== MANEJO DE ESTADO DE AUTENTICACIÓN ====================
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user || null;
+            const userEmailSpan = document.getElementById('userEmail');
+            const btnLogout = document.getElementById('btnLogout');
+            const btnChangePassword = document.getElementById('btnChangePassword');
+            const panelAuth = document.getElementById('panelAuth');
+            const panelMain = document.getElementById('panelMain');
+
+            if (user) {
+                btnLogout.style.display = 'inline-block';
+                btnChangePassword.style.display = 'inline-block';
+                panelAuth.classList.remove('active');
+                panelMain.classList.add('active');
+
+                await getOrCreateUserKeys(user.uid);
+
+                const userRef = ref(db, `users/${user.uid}`);
+                const snapshot = await get(userRef);
+                if (!snapshot.exists()) {
+                    await set(userRef, {
+                        email: user.email,
+                        displayName: user.email.split('@')[0],
+                        publicKey: myPublicKeyBase64,
+                        createdAt: serverTimestamp()
+                    });
+                } else {
+                    const data = snapshot.val();
+                    if (data.publicKey !== myPublicKeyBase64) {
+                        await update(userRef, { publicKey: myPublicKeyBase64 });
+                    }
+                    const displayName = data.displayName || user.email.split('@')[0];
+                    userEmailSpan.textContent = `${displayName} (${user.email})`;
+                }
+
+                loadUsersList();
+            } else {
+                userEmailSpan.textContent = 'Sin sesión';
+                btnLogout.style.display = 'none';
+                btnChangePassword.style.display = 'none';
+                panelMain.classList.remove('active');
+                panelAuth.classList.add('active');
+                document.getElementById('userList').innerHTML = '';
+                document.getElementById('contactsSubtitle').textContent = 'Inicia sesión para ver tus contactos.';
+                resetChatView();
+                myKeyPair = null;
+                myPublicKeyBase64 = null;
+            }
+        });
+
+        // ==================== CARGA DE USUARIOS ====================
+        function loadUsersList() {
+            if (!currentUser) return;
+            document.getElementById('contactsSubtitle').textContent = 'Cargando usuarios...';
+            const userListEl = document.getElementById('userList');
+            userListEl.innerHTML = '';
+
+            if (unsubscribeUsers) unsubscribeUsers();
+            const usersRef = ref(db, 'users');
+            unsubscribeUsers = onValue(usersRef, (snapshot) => {
+                try {
+                    const users = [];
+                    usersMap.clear();
+                    snapshot.forEach((childSnapshot) => {
+                        const data = childSnapshot.val();
+                        const uid = childSnapshot.key;
+                        if (uid === currentUser.uid) return;
+                        const displayName = data.displayName || data.email.split('@')[0];
+                        usersMap.set(uid, {
+                            displayName,
+                            email: data.email,
+                            publicKey: data.publicKey || ''
+                        });
+                        users.push({ uid, displayName, email: data.email });
+                    });
+                    users.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+                    userListEl.innerHTML = '';
+                    users.forEach(u => {
+                        const item = renderUserItem(u.uid, u.displayName, u.email);
+                        userListEl.appendChild(item);
+                    });
+
+                    document.getElementById('contactsSubtitle').textContent = users.length === 0
+                        ? 'No hay otros usuarios. Crea otra cuenta.'
+                        : `${users.length} usuarios disponibles.`;
+                } catch (err) {
+                    console.error('Error procesando usuarios:', err);
+                    document.getElementById('contactsSubtitle').textContent = 'Error al procesar usuarios.';
+                }
+            }, (error) => {
+                console.error('Error al cargar usuarios:', error);
+                document.getElementById('contactsSubtitle').textContent = 'Error al cargar usuarios. Revisa permisos.';
+            });
+        }
+
+        function renderUserItem(uid, displayName, email) {
+            const div = document.createElement('div');
+            div.className = 'user-item';
+            div.dataset.uid = uid;
+            div.dataset.email = email;
+            div.dataset.displayName = displayName;
+            const avatar = document.createElement('div');
+            avatar.className = 'user-avatar';
+            const letra = displayName?.charAt(0).toUpperCase() || '?';
+            avatar.textContent = letra;
+            const meta = document.createElement('div');
+            meta.className = 'user-meta';
+            const name = document.createElement('div');
+            name.className = 'user-name';
+            name.textContent = displayName;
+            const small = document.createElement('div');
+            small.className = 'user-email-small';
+            small.textContent = email;
+            meta.appendChild(name);
+            meta.appendChild(small);
+            div.appendChild(avatar);
+            div.appendChild(meta);
+            div.addEventListener('click', () => {
+                const items = document.querySelectorAll('.user-item');
+                items.forEach(i => i.classList.remove('active'));
+                div.classList.add('active');
+                openConversationWith(uid, displayName, email);
+            });
+            return div;
+        }
+
+        // ==================== CHAT (con placeholder corregido) ====================
+        function resetChatView() {
+            document.getElementById('chatAvatar').textContent = '?';
+            document.getElementById('chatTitle').textContent = 'Sin conversación';
+            document.getElementById('chatSubtitle').textContent = 'Selecciona un contacto para empezar a chatear.';
+
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.innerHTML = ''; // Limpia todo
+
+            // Reinsertar el placeholder de forma segura
+            if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                messagesContainer.appendChild(chatPlaceholderElement);
+            } else {
+                const newPlaceholder = document.createElement('div');
+                newPlaceholder.className = 'chat-placeholder';
+                newPlaceholder.id = 'chatPlaceholder';
+                newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                messagesContainer.appendChild(newPlaceholder);
+            }
+
+            document.getElementById('msgInput').value = '';
+            document.getElementById('msgInput').disabled = true;
+            document.getElementById('btnSend').disabled = true;
+            document.getElementById('btnDeleteChat').style.display = 'none';
+            document.getElementById('chatStatus').textContent = 'Esperando contacto';
+            currentConversationId = null;
+            lastMessageDate = null;
+            if (unsubscribeMessages) {
+                unsubscribeMessages();
+                unsubscribeMessages = null;
+            }
+        }
+
+        async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
+            if (!currentUser) return;
+            document.getElementById('chatStatus').textContent = 'Abriendo conversación...';
+            document.getElementById('msgInput').disabled = true;
+            document.getElementById('btnSend').disabled = true;
+            document.getElementById('btnDeleteChat').style.display = 'none';
+
+            const uid1 = currentUser.uid < otherUid ? currentUser.uid : otherUid;
+            const uid2 = currentUser.uid > otherUid ? currentUser.uid : otherUid;
+            currentConversationId = `${uid1}_${uid2}`;
+
+            const chatRef = ref(db, `chats/${currentConversationId}`);
+            const chatSnap = await get(chatRef);
+            if (!chatSnap.exists()) {
+                await set(chatRef, {
+                    participants: { [uid1]: true, [uid2]: true },
+                    lastMessage: 'Mensaje encriptado',
+                    lastAt: serverTimestamp()
+                });
+            }
+
+            const letra = otherDisplayName?.charAt(0).toUpperCase();
+            document.getElementById('chatAvatar').textContent = letra;
+            document.getElementById('chatTitle').textContent = otherDisplayName;
+            document.getElementById('chatSubtitle').textContent = otherEmail;
+
+            if (unsubscribeMessages) unsubscribeMessages();
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.innerHTML = ''; // Limpia
+
+            // Reinsertar placeholder (igual que en reset)
+            if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                messagesContainer.appendChild(chatPlaceholderElement);
+            } else {
+                const newPlaceholder = document.createElement('div');
+                newPlaceholder.className = 'chat-placeholder';
+                newPlaceholder.id = 'chatPlaceholder';
+                newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                messagesContainer.appendChild(newPlaceholder);
+            }
+
+            lastMessageDate = null;
+
+            const messagesRef = ref(db, `messages/${currentConversationId}`);
+            unsubscribeMessages = onValue(messagesRef, async (snapshot) => {
+                try {
+                    messagesContainer.innerHTML = ''; // Vuelve a limpiar para los mensajes nuevos
+                    let hasMessages = false;
+                    const messages = [];
+                    snapshot.forEach((childSnapshot) => {
+                        hasMessages = true;
+                        const data = childSnapshot.val();
+                        messages.push(data);
+                    });
+                    messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+                    for (const msg of messages) {
+                        const decryptedText = await decryptMessage(msg);
+                        renderMessageWithDate({ ...msg, decryptedText });
+                    }
+
+                    if (!hasMessages) {
+                        // Si no hay mensajes, volver a poner el placeholder
+                        if (chatPlaceholderElement && chatPlaceholderElement.parentNode) {
+                            messagesContainer.appendChild(chatPlaceholderElement);
+                        } else {
+                            const newPlaceholder = document.createElement('div');
+                            newPlaceholder.className = 'chat-placeholder';
+                            newPlaceholder.id = 'chatPlaceholder';
+                            newPlaceholder.textContent = 'Selecciona un usuario en la lista de contactos para abrir un chat privado. Si no ves a nadie, crea otra cuenta y entra desde otro navegador o modo incógnito.';
+                            messagesContainer.appendChild(newPlaceholder);
+                        }
+                    }
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                } catch (err) {
+                    console.error('Error al procesar mensajes:', err);
+                    document.getElementById('chatStatus').textContent = 'Error al mostrar mensajes';
+                }
+            }, (error) => {
+                console.error('Error al escuchar mensajes:', error);
+                document.getElementById('chatStatus').textContent = 'Error al recibir mensajes';
+            });
+
+            document.getElementById('msgInput').disabled = false;
+            document.getElementById('btnSend').disabled = false;
+            document.getElementById('btnDeleteChat').style.display = 'block';
+            document.getElementById('msgInput').focus();
+            document.getElementById('chatStatus').textContent = 'Conectado';
+        }
+
+        async function decryptMessage(msg) {
+            try {
+                if (msg.fromUserId === currentUser.uid) {
+                    return await decrypt(msg.senderText);
+                } else {
+                    return await decrypt(msg.text);
+                }
+            } catch (e) {
+                console.warn('Error al descifrar mensaje', e, msg);
+                return '[Mensaje cifrado no legible]';
+            }
+        }
+
+        function formatDate(date) {
+            const opciones = { year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('es-ES', opciones);
+        }
+
+        function renderMessageWithDate(data) {
+            if (!currentUser) return;
+            const isMe = data.fromUserId === currentUser.uid;
+
+            let messageDate = null;
+            if (data.timestamp) {
+                messageDate = new Date(data.timestamp);
+            }
+
+            if (messageDate) {
+                const dateKey = messageDate.toDateString();
+                if (lastMessageDate !== dateKey) {
+                    const separator = document.createElement('div');
+                    separator.className = 'date-separator';
+                    separator.textContent = formatDate(messageDate);
+                    document.getElementById('chatMessages').appendChild(separator);
+                    lastMessageDate = dateKey;
+                }
+            }
+
+            const bubble = document.createElement('div');
+            bubble.className = `bubble ${isMe ? 'me' : 'other'}`;
+            const text = document.createElement('div');
+            text.textContent = data.decryptedText || '';
+            bubble.appendChild(text);
+            const meta = document.createElement('div');
+            meta.className = 'bubble-meta';
+
+            let timeStr = '';
+            if (messageDate) {
+                const hh = String(messageDate.getHours()).padStart(2, '0');
+                const mm = String(messageDate.getMinutes()).padStart(2, '0');
+                timeStr = `${hh}:${mm}`;
+            }
+            meta.textContent = timeStr;
+            bubble.appendChild(meta);
+            document.getElementById('chatMessages').appendChild(bubble);
+        }
+
+        async function sendMessage() {
+            if (!currentUser || !currentConversationId) return;
+            const msgInput = document.getElementById('msgInput');
+            const text = msgInput.value.trim();
+            if (!text) return;
+            msgInput.value = '';
+            msgInput.focus();
+            document.getElementById('chatStatus').textContent = 'Enviando...';
+
+            try {
+                const recipientUid = currentConversationId.split('_').find(id => id !== currentUser.uid);
+                if (!recipientUid) throw new Error('No se pudo determinar el destinatario');
+
+                const recipient = usersMap.get(recipientUid);
+                if (!recipient || !recipient.publicKey) {
+                    throw new Error('Clave pública del destinatario no disponible');
+                }
+
+                const encryptedForRecipient = await encryptFor(text, recipient.publicKey);
+                const encryptedForSender = await encryptFor(text, myPublicKeyBase64);
+
+                const message = {
+                    fromUserId: currentUser.uid,
+                    toUserId: recipientUid,
+                    text: encryptedForRecipient,
+                    senderText: encryptedForSender,
+                    timestamp: Date.now()
+                };
+
+                const messagesRef = ref(db, `messages/${currentConversationId}`);
+                const newMsgRef = push(messagesRef);
+                await set(newMsgRef, message);
+
+                const chatRef = ref(db, `chats/${currentConversationId}`);
+                await update(chatRef, {
+                    lastMessage: 'Mensaje encriptado',
+                    lastAt: serverTimestamp()
+                });
+
+                document.getElementById('chatStatus').textContent = 'Conectado';
+            } catch (err) {
+                console.error(err);
+                document.getElementById('chatStatus').textContent = 'Error al enviar';
+            }
+        }
+
+        async function deleteCurrentChat() {
+            if (!currentConversationId || !currentUser) return;
+            if (!confirm('¿Estás seguro de que quieres borrar todos los mensajes de esta conversación?')) return;
+
+            document.getElementById('chatStatus').textContent = 'Borrando mensajes...';
+            try {
+                const messagesRef = ref(db, `messages/${currentConversationId}`);
+                await set(messagesRef, null);
+                const chatRef = ref(db, `chats/${currentConversationId}`);
+                await set(chatRef, null);
+
+                document.getElementById('chatStatus').textContent = 'Conectado';
+                resetChatView();
+            } catch (err) {
+                console.error('Error al borrar mensajes:', err);
+                document.getElementById('chatStatus').textContent = 'Error al borrar';
+            }
+        }
+
+        document.getElementById('btnSend').addEventListener('click', sendMessage);
+        document.getElementById('msgInput').addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' && !ev.shiftKey) {
+                ev.preventDefault();
+                sendMessage();
+            }
+        });
+        document.getElementById('btnDeleteChat').addEventListener('click', deleteCurrentChat);
+
+        // ==================== CAMBIO DE CONTRASEÑA ====================
+        const btnChangePassword = document.getElementById('btnChangePassword');
+        const passwordModal = document.getElementById('passwordModal');
+        const closePasswordModal = document.getElementById('closePasswordModal');
+        const currentPassword = document.getElementById('currentPassword');
+        const newPassword = document.getElementById('newPassword');
+        const confirmPassword = document.getElementById('confirmPassword');
+        const btnUpdatePassword = document.getElementById('btnUpdatePassword');
+        const passwordStatus = document.getElementById('passwordStatus');
+
+        btnChangePassword.addEventListener('click', () => {
+            passwordModal.classList.add('active');
+            currentPassword.value = '';
+            newPassword.value = '';
+            confirmPassword.value = '';
+            passwordStatus.textContent = '';
+        });
+
+        closePasswordModal.addEventListener('click', () => {
+            passwordModal.classList.remove('active');
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === passwordModal) {
+                passwordModal.classList.remove('active');
+            }
+        });
+
+        btnUpdatePassword.addEventListener('click', async () => {
+            const curPass = currentPassword.value.trim();
+            const newPass = newPassword.value.trim();
+            const confPass = confirmPassword.value.trim();
+
+            if (!curPass || !newPass || !confPass) {
+                passwordStatus.textContent = 'Completa todos los campos.';
+                passwordStatus.style.color = '#f15c6c';
+                return;
+            }
+            if (newPass.length < 6) {
+                passwordStatus.textContent = 'La nueva contraseña debe tener al menos 6 caracteres.';
+                passwordStatus.style.color = '#f15c6c';
+                return;
+            }
+            if (newPass !== confPass) {
+                passwordStatus.textContent = 'Las contraseñas nuevas no coinciden.';
+                passwordStatus.style.color = '#f15c6c';
+                return;
+            }
+
+            const user = auth.currentUser;
+            if (!user) {
+                passwordStatus.textContent = 'No hay usuario autenticado.';
+                passwordStatus.style.color = '#f15c6c';
+                return;
+            }
+
+            btnUpdatePassword.disabled = true;
+            passwordStatus.textContent = 'Verificando...';
+            passwordStatus.style.color = 'var(--color-muted)';
+
+            try {
+                const credential = EmailAuthProvider.credential(user.email, curPass);
+                await reauthenticateWithCredential(user, credential);
+                await updatePassword(user, newPass);
+                passwordStatus.textContent = '¡Contraseña actualizada correctamente!';
+                passwordStatus.style.color = '#00a884';
+                setTimeout(() => {
+                    passwordModal.classList.remove('active');
+                }, 1500);
+            } catch (error) {
+                console.error(error);
+                let msg = 'Error al cambiar la contraseña.';
+                if (error.code === 'auth/wrong-password') {
+                    msg = 'La contraseña actual es incorrecta.';
+                } else if (error.code === 'auth/weak-password') {
+                    msg = 'La nueva contraseña es demasiado débil.';
+                }
+                passwordStatus.textContent = msg;
+                passwordStatus.style.color = '#f15c6c';
+            } finally {
+                btnUpdatePassword.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
