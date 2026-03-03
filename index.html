@@ -1191,7 +1191,7 @@ async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
   } catch (err) {
     console.error('Error:', err);
     document.getElementById('chatStatus').textContent = 'Error de conexión';
-    alert('Error: ' + err.message);
+    alert('Error:' + err.message);
   }
 }
 
@@ -1206,7 +1206,7 @@ async function openConversationWith(otherUid, otherDisplayName, otherEmail) {
                 }
             } catch (e) {
                 console.warn('Error al descifrar mensaje', e, msg);
-                return '[Mensaje cifrado no legible]';
+                return '[Mensaje cifrado no legible...]';
             }
         }
 
