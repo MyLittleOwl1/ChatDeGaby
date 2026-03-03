@@ -669,24 +669,36 @@
         }
 
         // Importa una clave pública desde SPKI (Base64) con validación
-        async function importPublicKey(spkiBase64) {
-            if (!spkiBase64 || typeof spkiBase64 !== 'string') {
-                throw new Error('Clave pública inválida: no es una cadena');
-            }
-            try {
-                const spki = Uint8Array.from(atob(spkiBase64), c => c.charCodeAt(0));
-                return await crypto.subtle.importKey(
-                    "spki",
-                    spki,
-                    { name: "ECDH", namedCurve: "P-256" },
-                    true,
-                    []
-                );
-            } catch (e) {
-                console.error('Error al importar clave pública:', e);
-                throw new Error('La clave pública del destinatario no es válida');
-            }
-        }
+            async function importPublicKey(spkiBase64) {
+  if (!spkiBase64 || typeof spkiBase64 !== 'string') {
+    throw new Error('Clave pública inválida: no es cadena');
+  }
+  
+  try {
+    // Decodificar Base64
+    const binaryString = atob(spkiBase64);
+    const spki = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+    
+    // Verificar longitud mínima SPKI ECDH P-256 ≈ 91 bytes
+    if (spki.length < 80) {
+      throw new Error(`Clave muy corta: ${spki.length} bytes (esperado ~91)`);
+    }
+    
+    const publicKey = await crypto.subtle.importKey(
+      'spki',
+      spki,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      []
+    );
+    
+    return publicKey;
+  } catch (e) {
+    console.error('Error detallado importando clave:', e, 'Base64:', spkiBase64?.substring(0, 50));
+    throw new Error('Clave pública corrupta o inválida');
+  }
+}
+
 
         // Convierte una clave pública ECDH a formato uncompressed (0x04 + X + Y) de 65 bytes
         async function publicKeyToUncompressed(publicKey) {
