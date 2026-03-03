@@ -8,3 +8,14 @@
             messagingSenderId: "833008491572",
             appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
         };;
+
+        // ==================== CONFIGURACIÓN DE FIREBASE (USANDO TU JSON) ====================
+const firebaseConfig = {
+    apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
+    authDomain: "mychat-4fbf2.firebaseapp.com",
+    databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "mychat-4fbf2",
+    storageBucket: "mychat-4fbf2.firebasestorage.app",
+    messagingSenderId: "833008491572",
+    appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
+};
