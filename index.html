@@ -87,6 +87,7 @@
     <!-- Users list screen -->
     <div id="usersScreen" class="screen">
         <div id="usersList" style="flex:1;"></div>
+        <div id="noUsersMessage" class="info" style="display: none;">No hay otros usuarios registrados</div>
     </div>
 
     <!-- Chat screen -->
@@ -111,22 +112,20 @@
     </div>
 </div>
 
-<!-- Cargar Firebase y Tink de forma global -->
+<!-- Cargar Firebase y Tink -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
-<!-- Cargar Tink UMD desde unpkg -->
-<script src="https://unpkg.com/tink-crypto@0.1.0/dist/index.umd.js" crossorigin="anonymous"></script>
+<!-- Usar jsDelivr para Tink (UMD) - funciona con CORS y existe -->
+<script src="https://cdn.jsdelivr.net/npm/tink-crypto@0.1.0/dist/index.umd.min.js" crossorigin="anonymous"></script>
 
 <script>
     (function() {
-        // Ocultar overlay de carga cuando todo esté listo
         const loadingOverlay = document.getElementById('loadingOverlay');
         const showError = (msg) => {
             loadingOverlay.innerHTML = `<div style="color:red; padding:20px; text-align:center;">${msg}<br><button onclick="location.reload()">Reintentar</button></div>`;
         };
 
-        // Esperar a que Tink esté disponible globalmente
+        // Verificar que Tink se cargó
         if (typeof window.tink === 'undefined') {
-            // Si no está, esperar un poco (el script se carga asíncronamente)
             let attempts = 0;
             const waitForTink = setInterval(() => {
                 if (typeof window.tink !== 'undefined') {
@@ -134,7 +133,7 @@
                     initApp();
                 } else if (attempts++ > 20) { // 5 segundos máx
                     clearInterval(waitForTink);
-                    showError('No se pudo cargar la biblioteca de cifrado. Por favor, desactiva el bloqueo de rastreo para este sitio o usa otro navegador.');
+                    showError('No se pudo cargar la biblioteca de cifrado. Por favor, recarga la página.');
                 }
             }, 250);
         } else {
@@ -142,7 +141,6 @@
         }
 
         function initApp() {
-            // Tink ya está en window.tink
             const tink = window.tink;
             console.log('Tink cargado correctamente');
 
@@ -160,15 +158,15 @@
             const db = firebase.database();
             const auth = firebase.auth();
 
-            // Variables globales de la app
+            // Variables de la app
             let currentUser = null;
-            let keysetHandle = null;      // Tink KeysetHandle (privado)
+            let keysetHandle = null;
             let currentChatId = null;
             let currentRecipientId = null;
             let currentRecipientName = null;
             let messagesListener = null;
 
-            // Elementos del DOM
+            // Elementos DOM
             const loginScreen = document.getElementById('loginScreen');
             const registerScreen = document.getElementById('registerScreen');
             const usersScreen = document.getElementById('usersScreen');
@@ -179,8 +177,9 @@
             const menu = document.getElementById('menu');
             const profileLink = document.getElementById('profileLink');
             const logoutLink = document.getElementById('logoutLink');
+            const noUsersMessage = document.getElementById('noUsersMessage');
 
-            // ========== FUNCIONES DE CRIPTO ==========
+            // ========== FUNCIONES CRIPTO ==========
             async function generateKeysetHandle() {
                 const template = tink.hybrid.HybridKeyTemplates.ECIES_P256_HKDF_HMAC_SHA256_AES128_GCM;
                 return await tink.keyset.KeysetHandle.generateNew(template);
@@ -218,11 +217,12 @@
                     return btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
                 } catch (e) {
                     console.error('Error encryptFor:', e);
-                    return text;
+                    return text; // fallback texto plano
                 }
             }
 
             async function decrypt(encryptedBase64) {
+                if (!keysetHandle) return encryptedBase64;
                 try {
                     const ciphertext = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
                     const hybridDecrypt = await keysetHandle.getPrimitive(tink.hybrid.HybridDecrypt);
@@ -234,7 +234,7 @@
                 }
             }
 
-            // ========== GESTIÓN DE USUARIO Y CLAVES ==========
+            // ========== GESTIÓN DE USUARIO ==========
             async function ensureUserKeys() {
                 if (!currentUser) return;
                 if (!keysetHandle) {
@@ -293,7 +293,7 @@
                 }
             });
 
-            // Mostrar pantalla de registro
+            // Mostrar registro
             document.getElementById('registerBtn').addEventListener('click', () => {
                 showScreen('register');
             });
@@ -346,19 +346,24 @@
             function renderUsersList(users) {
                 const container = document.getElementById('usersList');
                 container.innerHTML = '';
-                users.forEach(user => {
-                    const div = document.createElement('div');
-                    div.className = 'user-item';
-                    div.innerHTML = `
-                        <div class="user-avatar">${(user.displayName?.[0] || '?')}</div>
-                        <div class="user-info">
-                            <h4>${user.displayName || 'Sin nombre'}</h4>
-                            <p>${user.email}</p>
-                        </div>
-                    `;
-                    div.addEventListener('click', () => openChat(user));
-                    container.appendChild(div);
-                });
+                if (users.length === 0) {
+                    noUsersMessage.style.display = 'block';
+                } else {
+                    noUsersMessage.style.display = 'none';
+                    users.forEach(user => {
+                        const div = document.createElement('div');
+                        div.className = 'user-item';
+                        div.innerHTML = `
+                            <div class="user-avatar">${(user.displayName?.[0] || '?')}</div>
+                            <div class="user-info">
+                                <h4>${user.displayName || 'Sin nombre'}</h4>
+                                <p>${user.email}</p>
+                            </div>
+                        `;
+                        div.addEventListener('click', () => openChat(user));
+                        container.appendChild(div);
+                    });
+                }
             }
 
             // ========== CHAT ==========
@@ -383,7 +388,7 @@
                     messages.sort((a, b) => a.timestamp - b.timestamp);
                     const decryptedMessages = await Promise.all(messages.map(async (msg) => {
                         const isFromSelf = msg.fromUserId === currentUser.uid;
-                        const encryptedText = isFromSelf ? msg.senderText : msg.text;
+                        const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
                         const decrypted = await decrypt(encryptedText);
                         return { ...msg, decryptedText: decrypted };
                     }));
@@ -521,13 +526,6 @@
                     menu.classList.remove('show');
                 }
             });
-
-            // Si Tink no se cargó después de un tiempo, mostrar error
-            setTimeout(() => {
-                if (typeof window.tink === 'undefined') {
-                    showError('No se pudo cargar la biblioteca de cifrado. Verifica tu conexión o desactiva el bloqueo de rastreo.');
-                }
-            }, 5000);
         } // fin initApp
     })();
 </script>
