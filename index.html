@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyChat Web</title>
     <style>
-        /* (Mantén los mismos estilos de la versión anterior) */
+        /* Estilos idénticos a la versión anterior */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -136,8 +136,8 @@
 
         // Variables de la app
         let currentUser = null;
-        let privateKey = null;          // Clave privada OpenPGP
-        let publicKeyArmored = null;    // Clave pública en formato ASCII
+        let privateKey = null;          // Clave privada OpenPGP (objeto)
+        let publicKeyArmored = null;    // Clave pública en formato ASCII (texto)
         let currentChatId = null;
         let currentRecipientId = null;
         let currentRecipientName = null;
@@ -170,13 +170,22 @@
 
         // Cifrar mensaje para un destinatario (con su clave pública)
         async function encryptFor(text, recipientPublicKeyArmored) {
-            const publicKey = await openpgp.readKey({ armoredKey: recipientPublicKeyArmored });
-            const encrypted = await openpgp.encrypt({
-                message: await openpgp.createMessage({ text: text }),
-                encryptionKeys: publicKey,
-                format: 'armored'  // Devuelve texto ASCII
-            });
-            return encrypted;
+            if (!recipientPublicKeyArmored) {
+                console.warn('No hay clave pública del destinatario, se envía en texto plano');
+                return text;
+            }
+            try {
+                const publicKey = await openpgp.readKey({ armoredKey: recipientPublicKeyArmored });
+                const encrypted = await openpgp.encrypt({
+                    message: await openpgp.createMessage({ text: text }),
+                    encryptionKeys: publicKey,
+                    format: 'armored'
+                });
+                return encrypted;
+            } catch (e) {
+                console.error('Error en encryptFor:', e);
+                return text; // Fallback a texto plano
+            }
         }
 
         // Descifrar mensaje usando nuestra clave privada
@@ -204,13 +213,12 @@
             if (storedPrivate) {
                 try {
                     privateKey = await openpgp.readPrivateKey({ armoredKey: storedPrivate });
-                    // También necesitamos la clave pública para guardarla/verificarla
-                    publicKeyArmored = storedPrivate; // No es correcto, la pública debe obtenerse de la privada
-                    // Mejor: extraer pública de la privada
+                    // Extraer la clave pública de la privada
                     publicKeyArmored = privateKey.toPublic().armor();
                 } catch (e) {
                     console.warn('Error al leer clave privada guardada', e);
                     privateKey = null;
+                    publicKeyArmored = null;
                 }
             }
 
@@ -271,10 +279,12 @@
         document.getElementById('loginBtn').addEventListener('click', async () => {
             const email = document.getElementById('loginEmail').value;
             const pass = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            errorDiv.innerText = '';
             try {
                 await auth.signInWithEmailAndPassword(email, pass);
             } catch (e) {
-                document.getElementById('loginError').innerText = e.message;
+                errorDiv.innerText = e.message; // Muestra el error real (credenciales inválidas, etc.)
             }
         });
 
@@ -291,8 +301,10 @@
             const name = document.getElementById('regName').value.trim();
             const email = document.getElementById('regEmail').value.trim();
             const pass = document.getElementById('regPassword').value;
+            const errorDiv = document.getElementById('registerError');
+            errorDiv.innerText = '';
             if (!name || !email || pass.length < 6) {
-                document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
+                errorDiv.innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
                 return;
             }
             try {
@@ -304,7 +316,7 @@
                 await ensureUserKeys();
                 showScreen('users');
             } catch (e) {
-                document.getElementById('registerError').innerText = e.message;
+                errorDiv.innerText = e.message;
             }
         });
 
@@ -421,11 +433,12 @@
             // Obtener clave pública del destinatario
             const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
             const recipientPublicKey = recipientSnap.val();
-            // Nuestra propia clave pública
-            const myPublicKey = publicKeyArmored;
 
+            // Cifrar para destinatario (si tiene clave pública)
             const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-            const encryptedForSelf = myPublicKey ? await encryptFor(text, myPublicKey) : text;
+
+            // Cifrar para uno mismo (si tenemos nuestra clave pública)
+            const encryptedForSelf = publicKeyArmored ? await encryptFor(text, publicKeyArmored) : text;
 
             const message = {
                 fromUserId: currentUser.uid,
