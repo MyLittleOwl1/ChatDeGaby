@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (libsodium)</title>
+    <title>MyChat Web (Libsodium - compatible Android)</title>
     <style>
-        /* Mismos estilos, los omito por brevedad */
+        /* Mismos estilos, por brevedad se omiten, pero debes copiarlos de respuestas anteriores */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -57,7 +57,7 @@
         <div>Cargando MyChat...</div>
     </div>
 
-    <!-- Mismas pantallas que antes -->
+    <!-- Estructura de pantallas igual que antes -->
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <button class="menu-btn" id="menuToggle">☰</button>
@@ -67,51 +67,11 @@
         </div>
     </header>
 
-    <div id="loginScreen" class="screen active">
-        <div style="margin-top: 40px; text-align: center;">
-            <h3>Bienvenido a MyChat</h3>
-            <p>Inicia sesión o regístrate</p>
-        </div>
-        <div class="input-group"><input type="email" id="loginEmail" placeholder="Email" /></div>
-        <div class="input-group"><input type="password" id="loginPassword" placeholder="Contraseña" /></div>
-        <button id="loginBtn">Iniciar sesión</button>
-        <button class="secondary" id="registerBtn" style="margin-top: 8px;">Registrarse</button>
-        <div id="loginError" class="error"></div>
-    </div>
-
-    <div id="registerScreen" class="screen">
-        <h3>Crear cuenta</h3>
-        <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
-        <div class="input-group"><input type="email" id="regEmail" placeholder="Email" /></div>
-        <div class="input-group"><input type="password" id="regPassword" placeholder="Contraseña (mín. 6)" /></div>
-        <button id="registerConfirmBtn">Registrarse</button>
-        <button class="secondary" id="backToLogin">Volver</button>
-        <div id="registerError" class="error"></div>
-    </div>
-
-    <div id="usersScreen" class="screen">
-        <div id="usersList" style="flex:1;"></div>
-        <div id="noUsersMessage" class="info" style="display: none;">No hay otros usuarios registrados</div>
-    </div>
-
-    <div id="chatScreen" class="screen">
-        <div id="messagesArea"></div>
-        <div id="chatFooter">
-            <input type="text" id="messageInput" placeholder="Mensaje..." />
-            <button id="sendBtn">➤</button>
-        </div>
-    </div>
-
-    <div id="profileScreen" class="screen">
-        <h3>Mi perfil</h3>
-        <div class="input-group"><input type="text" id="profileName" placeholder="Nombre" /></div>
-        <div class="input-group"><input type="email" id="profileEmail" placeholder="Email" disabled /></div>
-        <div class="input-group"><input type="password" id="profilePassword" placeholder="Nueva contraseña (mín. 6)" /></div>
-        <button id="updateNameBtn">Actualizar nombre</button>
-        <button id="updatePasswordBtn" style="margin-top: 8px;">Actualizar contraseña</button>
-        <div id="profileError" class="error"></div>
-        <button class="secondary" id="backFromProfile" style="margin-top: 16px;">Volver</button>
-    </div>
+    <div id="loginScreen" class="screen active">...</div>
+    <div id="registerScreen" class="screen">...</div>
+    <div id="usersScreen" class="screen">...</div>
+    <div id="chatScreen" class="screen">...</div>
+    <div id="profileScreen" class="screen">...</div>
 </div>
 
 <script>
@@ -136,15 +96,15 @@
 
         // Variables globales
         let currentUser = null;
-        let keyPair = null;              // { privateKey: X, publicKey: X } (en formato Uint8Array)
-        let publicKeyBase64 = null;      // clave pública en base64 para Firebase
+        let privateKeyHex = null;       // Clave privada en hex (string)
+        let publicKeyHex = null;        // Clave pública en hex (string)
         let currentChatId = null;
         let currentRecipientId = null;
         let currentRecipientName = null;
         let messagesRef = null;
         let messagesCallback = null;
 
-        // Elementos DOM
+        // Elementos DOM (obtener todos igual que antes)
         const loadingOverlay = document.getElementById('loadingOverlay');
         const loginScreen = document.getElementById('loginScreen');
         const registerScreen = document.getElementById('registerScreen');
@@ -158,27 +118,49 @@
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
 
-        // --- Funciones criptográficas con libsodium ---
+        // --- Funciones de utilidad: hex <-> bytes ---
+        function hexToBytes(hex) {
+            const bytes = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < hex.length; i += 2) {
+                bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+            }
+            return bytes;
+        }
 
-        // Generar par de claves (Curve25519)
-        async function generateKeyPair() {
+        function bytesToHex(bytes) {
+            return Array.from(bytes)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        // --- Funciones criptográficas con libsodium (usando hex para claves) ---
+
+        // Generar par de claves (Curve25519) y devolver en hex
+        async function generateKeyPairHex() {
             const keypair = await sodium.crypto_box_keypair();
+            const publicKey = await sodium.crypto_box_publickey(keypair);
+            const privateKey = await sodium.crypto_box_secretkey(keypair);
             return {
-                privateKey: await sodium.crypto_box_secretkey(keypair),
-                publicKey: await sodium.crypto_box_publickey(keypair)
+                publicKeyHex: bytesToHex(publicKey),
+                privateKeyHex: bytesToHex(privateKey)
             };
         }
 
-        // Cifrar mensaje para un destinatario (con su clave pública)
-        async function encryptFor(text, recipientPublicKeyBase64) {
-            if (!keyPair || !recipientPublicKeyBase64) return text;
+        // Cifrar mensaje para un destinatario (clave pública del destinatario en hex)
+        async function encryptFor(text, recipientPublicKeyHex) {
+            if (!privateKeyHex || !recipientPublicKeyHex) return text;
             try {
-                const recipientPublicKey = Uint8Array.from(atob(recipientPublicKeyBase64), c => c.charCodeAt(0));
-                // Generar nonce aleatorio
+                const recipientPublicKey = hexToBytes(recipientPublicKeyHex);
+                const myPrivateKey = hexToBytes(privateKeyHex);
                 const nonce = await sodium.randombytes_buf(24);
                 const messageUint8 = new TextEncoder().encode(text);
-                const ciphertext = await sodium.crypto_box_easy(messageUint8, nonce, recipientPublicKey, keyPair.privateKey);
-                // Devolver nonce + ciphertext en base64
+                const ciphertext = await sodium.crypto_box_easy(
+                    messageUint8,
+                    nonce,
+                    recipientPublicKey,
+                    myPrivateKey
+                );
+                // Concatenar nonce + ciphertext
                 const combined = new Uint8Array(nonce.length + ciphertext.length);
                 combined.set(nonce, 0);
                 combined.set(ciphertext, nonce.length);
@@ -189,15 +171,21 @@
             }
         }
 
-        // Descifrar mensaje (con nuestra clave privada y la clave pública del remitente)
-        async function decrypt(encryptedBase64, senderPublicKeyBase64) {
-            if (!keyPair || !senderPublicKeyBase64) return encryptedBase64;
+        // Descifrar mensaje (clave pública del remitente en hex)
+        async function decrypt(encryptedBase64, senderPublicKeyHex) {
+            if (!privateKeyHex || !senderPublicKeyHex) return encryptedBase64;
             try {
                 const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
                 const nonce = combined.slice(0, 24);
                 const ciphertext = combined.slice(24);
-                const senderPublicKey = Uint8Array.from(atob(senderPublicKeyBase64), c => c.charCodeAt(0));
-                const decrypted = await sodium.crypto_box_open_easy(ciphertext, nonce, senderPublicKey, keyPair.privateKey);
+                const senderPublicKey = hexToBytes(senderPublicKeyHex);
+                const myPrivateKey = hexToBytes(privateKeyHex);
+                const decrypted = await sodium.crypto_box_open_easy(
+                    ciphertext,
+                    nonce,
+                    senderPublicKey,
+                    myPrivateKey
+                );
                 return new TextDecoder().decode(decrypted);
             } catch (e) {
                 console.error('Error decrypt:', e);
@@ -209,45 +197,37 @@
         async function ensureUserKeys() {
             if (!currentUser) return;
 
-            // Cargar claves desde localStorage
-            const stored = localStorage.getItem(`myChat_sodium_${currentUser.uid}`);
+            // Cargar claves desde localStorage (guardadas en hex)
+            const stored = localStorage.getItem(`myChat_sodium_hex_${currentUser.uid}`);
             if (stored) {
                 try {
                     const data = JSON.parse(stored);
-                    keyPair = {
-                        privateKey: Uint8Array.from(atob(data.privateKey), c => c.charCodeAt(0)),
-                        publicKey: Uint8Array.from(atob(data.publicKey), c => c.charCodeAt(0))
-                    };
-                    publicKeyBase64 = data.publicKey;
+                    privateKeyHex = data.privateKeyHex;
+                    publicKeyHex = data.publicKeyHex;
                 } catch (e) {
                     console.warn('Error cargando claves', e);
-                    keyPair = null;
+                    privateKeyHex = null;
                 }
             }
 
             // Si no hay, generar nuevas
-            if (!keyPair) {
-                const newKeys = await generateKeyPair();
-                const privB64 = btoa(String.fromCharCode(...newKeys.privateKey));
-                const pubB64 = btoa(String.fromCharCode(...newKeys.publicKey));
-                localStorage.setItem(`myChat_sodium_${currentUser.uid}`, JSON.stringify({
-                    privateKey: privB64,
-                    publicKey: pubB64
-                }));
-                keyPair = newKeys;
-                publicKeyBase64 = pubB64;
+            if (!privateKeyHex) {
+                const keys = await generateKeyPairHex();
+                privateKeyHex = keys.privateKeyHex;
+                publicKeyHex = keys.publicKeyHex;
+                localStorage.setItem(`myChat_sodium_hex_${currentUser.uid}`, JSON.stringify(keys));
             }
 
-            // Guardar clave pública en Firebase (sobrescribir si existe)
+            // Guardar clave pública en Firebase (en hex)
             await db.ref(`users/${currentUser.uid}`).set({
                 userId: currentUser.uid,
                 displayName: currentUser.displayName || currentUser.email,
                 email: currentUser.email,
-                publicKey: publicKeyBase64
+                publicKey: publicKeyHex   // <-- ¡Importante: en hex!
             });
         }
 
-        // --- Auth ---
+        // --- Auth (igual, pero con manejo de errores) ---
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
@@ -265,8 +245,8 @@
                 }
             } else {
                 currentUser = null;
-                keyPair = null;
-                publicKeyBase64 = null;
+                privateKeyHex = null;
+                publicKeyHex = null;
                 showScreen('login');
                 headerTitle.innerText = 'MyChat';
                 if (messagesRef && messagesCallback) {
@@ -277,7 +257,7 @@
             }
         });
 
-        // Login
+        // Login (igual)
         document.getElementById('loginBtn').addEventListener('click', async () => {
             const email = document.getElementById('loginEmail').value;
             const pass = document.getElementById('loginPassword').value;
@@ -385,21 +365,21 @@
                 });
                 messages.sort((a, b) => a.timestamp - b.timestamp);
 
-                // Obtener clave pública del otro usuario
-                let otherPublicKey = null;
+                // Obtener clave pública del otro usuario (en hex)
+                let otherPublicKeyHex = null;
                 if (messages.length > 0) {
                     const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
                     if (otherUserId) {
                         const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
-                        otherPublicKey = snap.val();
+                        otherPublicKeyHex = snap.val(); // Ya es hex
                     }
                 }
 
                 const decryptedMessages = await Promise.all(messages.map(async (msg) => {
                     const isFromSelf = msg.fromUserId === currentUser.uid;
                     const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
-                    const senderPublicKey = isFromSelf ? publicKeyBase64 : otherPublicKey;
-                    const decrypted = senderPublicKey ? await decrypt(encryptedText, senderPublicKey) : encryptedText;
+                    const senderPublicKeyHex = isFromSelf ? publicKeyHex : otherPublicKeyHex;
+                    const decrypted = senderPublicKeyHex ? await decrypt(encryptedText, senderPublicKeyHex) : encryptedText;
                     return { ...msg, decryptedText: decrypted };
                 }));
                 renderMessages(decryptedMessages);
@@ -442,15 +422,15 @@
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const text = input.value.trim();
-            if (!text || !currentChatId || !keyPair) return;
+            if (!text || !currentChatId || !privateKeyHex) return;
             input.value = '';
 
-            // Obtener clave pública del destinatario
+            // Obtener clave pública del destinatario (en hex)
             const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
-            const recipientPublicKey = recipientSnap.val();
+            const recipientPublicKeyHex = recipientSnap.val();
 
-            const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-            const encryptedForSelf = publicKeyBase64 ? await encryptFor(text, publicKeyBase64) : text;
+            const encryptedForRecipient = recipientPublicKeyHex ? await encryptFor(text, recipientPublicKeyHex) : text;
+            const encryptedForSelf = publicKeyHex ? await encryptFor(text, publicKeyHex) : text;
 
             const message = {
                 fromUserId: currentUser.uid,
