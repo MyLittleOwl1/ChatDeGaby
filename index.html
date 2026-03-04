@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyChat Web</title>
     <style>
+        /* (mismos estilos, se omiten por brevedad) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; }
@@ -37,6 +38,7 @@
         #sendBtn { border-radius: 50%; width: 48px; height: 48px; padding: 0; font-size: 1.2rem; }
         .progress { display: none; text-align: center; padding: 20px; }
         .error { color: red; font-size: 0.9rem; margin: 8px 0; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
@@ -61,6 +63,17 @@
         <button id="loginBtn">Iniciar sesión</button>
         <button class="secondary" id="registerBtn" style="margin-top: 8px;">Registrarse</button>
         <div id="loginError" class="error"></div>
+    </div>
+
+    <!-- Register screen (nuevo) -->
+    <div id="registerScreen" class="screen">
+        <h3>Crear cuenta</h3>
+        <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
+        <div class="input-group"><input type="email" id="regEmail" placeholder="Email" /></div>
+        <div class="input-group"><input type="password" id="regPassword" placeholder="Contraseña (mín. 6)" /></div>
+        <button id="registerConfirmBtn">Registrarse</button>
+        <button class="secondary" id="backToLogin">Volver</button>
+        <div id="registerError" class="error"></div>
     </div>
 
     <!-- Users list screen -->
@@ -92,9 +105,8 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
 <script type="module">
-    // ========== IMPORTAR TINK ==========
-    import * as tink from 'https://unpkg.com/tink-crypto@0.1.0?module';
-    const { hybrid, keyset, proto, util } = tink;
+    // ========== IMPORTAR TINK (desde esm.sh, más confiable) ==========
+    import { hybrid, keyset, proto, util } from 'https://esm.sh/tink-crypto@0.1.0?target=es2020';
 
     // ========== CONFIGURACIÓN FIREBASE ==========
     const firebaseConfig = {
@@ -111,7 +123,7 @@
     const auth = firebase.auth();
 
     // ========== VARIABLES GLOBALES ==========
-    let currentUser = null;               // Firebase user
+    let currentUser = null;
     let keysetHandle = null;              // Tink KeysetHandle (privado)
     let currentChatId = null;
     let currentRecipientId = null;
@@ -120,6 +132,7 @@
 
     // Elementos del DOM
     const loginScreen = document.getElementById('loginScreen');
+    const registerScreen = document.getElementById('registerScreen');
     const usersScreen = document.getElementById('usersScreen');
     const chatScreen = document.getElementById('chatScreen');
     const profileScreen = document.getElementById('profileScreen');
@@ -131,7 +144,13 @@
 
     // ========== FUNCIONES DE CRIPTO (TINK) ==========
     async function initTink() {
-        await hybrid.HybridConfig.register();
+        try {
+            await hybrid.HybridConfig.register();
+            console.log('Tink inicializado correctamente');
+        } catch (e) {
+            console.error('Error al inicializar Tink:', e);
+            alert('Error de inicialización criptográfica. Recarga la página.');
+        }
     }
     await initTink();
 
@@ -177,7 +196,7 @@
             return btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
         } catch (e) {
             console.error('Error encryptFor:', e);
-            return text; // fallback texto plano (no debería ocurrir)
+            return text;
         }
     }
 
@@ -190,43 +209,38 @@
             return new TextDecoder().decode(plaintext);
         } catch (e) {
             console.error('Error decrypt:', e);
-            return encryptedBase64; // fallback
+            return encryptedBase64;
         }
     }
 
     // ========== GESTIÓN DE USUARIO Y CLAVES ==========
     async function ensureUserKeys() {
         if (!currentUser) return;
-        // Intentar cargar keyset existente
-        keysetHandle = await loadKeyset();
+        // Si ya tenemos keysetHandle en memoria, no generamos de nuevo
+        if (!keysetHandle) {
+            keysetHandle = await loadKeyset();
+        }
         if (!keysetHandle) {
             // Generar nuevo keyset
             keysetHandle = await generateKeysetHandle();
             await storeKeyset(keysetHandle);
-            // Subir clave pública a Firebase
-            const publicKey = await getPublicKeyString(keysetHandle);
-            await db.ref(`users/${currentUser.uid}/publicKey`).set(publicKey);
-            // También guardar nombre si no existe
-            if (!currentUser.displayName) {
-                await currentUser.updateProfile({ displayName: currentUser.email.split('@')[0] });
-            }
-            await db.ref(`users/${currentUser.uid}`).update({
+        }
+        // Asegurar que la clave pública esté en Firebase
+        const publicKey = await getPublicKeyString(keysetHandle);
+        const snapshot = await db.ref(`users/${currentUser.uid}/publicKey`).once('value');
+        if (!snapshot.exists() || snapshot.val() !== publicKey) {
+            await db.ref(`users/${currentUser.uid}`).set({
                 userId: currentUser.uid,
                 displayName: currentUser.displayName || currentUser.email,
                 email: currentUser.email,
                 publicKey: publicKey
             });
         } else {
-            // Asegurar que la clave pública en Firebase coincide con la local
-            const publicKey = await getPublicKeyString(keysetHandle);
-            const snapshot = await db.ref(`users/${currentUser.uid}/publicKey`).once('value');
-            if (!snapshot.exists() || snapshot.val() !== publicKey) {
-                await db.ref(`users/${currentUser.uid}/publicKey`).set(publicKey);
-                await db.ref(`users/${currentUser.uid}`).update({
-                    displayName: currentUser.displayName || currentUser.email,
-                    email: currentUser.email
-                });
-            }
+            // Actualizar otros datos por si cambiaron
+            await db.ref(`users/${currentUser.uid}`).update({
+                displayName: currentUser.displayName || currentUser.email,
+                email: currentUser.email
+            });
         }
     }
 
@@ -243,11 +257,11 @@
             keysetHandle = null;
             showScreen('login');
             headerTitle.innerText = 'MyChat';
-            // Limpiar listeners
             if (messagesListener) messagesListener.off();
         }
     });
 
+    // Login
     document.getElementById('loginBtn').addEventListener('click', async () => {
         const email = document.getElementById('loginEmail').value;
         const pass = document.getElementById('loginPassword').value;
@@ -258,18 +272,38 @@
         }
     });
 
-    document.getElementById('registerBtn').addEventListener('click', async () => {
-        const email = document.getElementById('loginEmail').value;
-        const pass = document.getElementById('loginPassword').value;
-        if (!email || pass.length < 6) {
-            document.getElementById('loginError').innerText = 'Email válido y contraseña mínimo 6 caracteres';
+    // Mostrar pantalla de registro
+    document.getElementById('registerBtn').addEventListener('click', () => {
+        showScreen('register');
+    });
+    document.getElementById('backToLogin').addEventListener('click', () => {
+        showScreen('login');
+    });
+
+    // Registro con nombre
+    document.getElementById('registerConfirmBtn').addEventListener('click', async () => {
+        const name = document.getElementById('regName').value.trim();
+        const email = document.getElementById('regEmail').value.trim();
+        const pass = document.getElementById('regPassword').value;
+        if (!name || !email || pass.length < 6) {
+            document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
             return;
         }
         try {
+            // Crear usuario
             const cred = await auth.createUserWithEmailAndPassword(email, pass);
-            // El nombre se pondrá por defecto en ensureUserKeys
+            const user = cred.user;
+            // Actualizar perfil con el nombre
+            await user.updateProfile({ displayName: name });
+            // Recargar usuario para obtener displayName actualizado
+            await user.reload();
+            currentUser = auth.currentUser; // actualizar referencia
+            // Generar claves (ya se hará en onAuthStateChanged, pero aquí forzamos para que estén listas)
+            await ensureUserKeys();
+            // Navegar a users
+            showScreen('users');
         } catch (e) {
-            document.getElementById('loginError').innerText = e.message;
+            document.getElementById('registerError').innerText = e.message;
         }
     });
 
@@ -277,7 +311,7 @@
         e.preventDefault();
         auth.signOut();
         menu.classList.remove('show');
-        localStorage.removeItem('myChat_privateKeyset'); // opcional
+        localStorage.removeItem('myChat_privateKeyset');
     });
 
     // ========== LISTA DE USUARIOS ==========
@@ -315,7 +349,6 @@
     function openChat(recipient) {
         currentRecipientId = recipient.userId;
         currentRecipientName = recipient.displayName || recipient.email;
-        // chatId = sorted user ids
         const ids = [currentUser.uid, recipient.userId].sort();
         currentChatId = ids.join('_');
         showScreen('chat');
@@ -331,9 +364,7 @@
             snapshot.forEach((child) => {
                 messages.push(child.val());
             });
-            // Ordenar por timestamp
             messages.sort((a, b) => a.timestamp - b.timestamp);
-            // Descifrar mensajes
             const decryptedMessages = await Promise.all(messages.map(async (msg) => {
                 const isFromSelf = msg.fromUserId === currentUser.uid;
                 const encryptedText = isFromSelf ? msg.senderText : msg.text;
@@ -381,15 +412,11 @@
         if (!text || !currentChatId || !keysetHandle) return;
         input.value = '';
 
-        // Obtener clave pública del destinatario
         const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
         const recipientPublicKey = recipientSnap.val();
-        // Obtener mi propia clave pública
         const myPublicKey = await getPublicKeyString(keysetHandle);
 
-        // Cifrar para destinatario
         const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-        // Cifrar para mí mismo
         const encryptedForSelf = myPublicKey ? await encryptFor(text, myPublicKey) : text;
 
         const message = {
@@ -398,13 +425,12 @@
             text: encryptedForRecipient,
             senderText: encryptedForSelf,
             timestamp: Date.now(),
-            messageId: '' // se generará con push
+            messageId: ''
         };
 
         const newMsgRef = db.ref(`messages/${currentChatId}`).push();
         await newMsgRef.set({ ...message, messageId: newMsgRef.key });
 
-        // Actualizar nodo chats (para último mensaje)
         await db.ref(`chats/${currentChatId}`).update({
             lastMessage: 'Mensaje encriptado',
             lastTimestamp: message.timestamp,
@@ -458,10 +484,12 @@
     // ========== UI ==========
     function showScreen(screenName) {
         loginScreen.classList.remove('active');
+        registerScreen.classList.remove('active');
         usersScreen.classList.remove('active');
         chatScreen.classList.remove('active');
         profileScreen.classList.remove('active');
         if (screenName === 'login') loginScreen.classList.add('active');
+        if (screenName === 'register') registerScreen.classList.add('active');
         if (screenName === 'users') usersScreen.classList.add('active');
         if (screenName === 'chat') chatScreen.classList.add('active');
         if (screenName === 'profile') profileScreen.classList.add('active');
@@ -472,7 +500,6 @@
         menu.classList.toggle('show');
     });
 
-    // Cerrar menú al hacer clic fuera
     window.addEventListener('click', (e) => {
         if (!menu.contains(e.target) && e.target !== menuToggle) {
             menu.classList.remove('show');
