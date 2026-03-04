@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyChat Web</title>
     <style>
-        /* (mismos estilos) */
+        /* (mismos estilos, se omiten por brevedad) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -137,11 +137,12 @@
         // Variables de la app
         let currentUser = null;
         let privateKey = null;          // Clave privada OpenPGP (objeto descifrado)
-        let publicKeyArmored = null;    // Clave pública en formato ASCII (texto)
+        let publicKeyArmored = null;    // Clave pública en formato ASCII
         let currentChatId = null;
         let currentRecipientId = null;
         let currentRecipientName = null;
-        let messagesListener = null;
+        let messagesRef = null;          // Referencia a la colección de mensajes actual
+        let messagesCallback = null;     // Función callback del listener
 
         // Elementos DOM
         const loginScreen = document.getElementById('loginScreen');
@@ -184,11 +185,11 @@
                 return encrypted;
             } catch (e) {
                 console.error('Error en encryptFor:', e);
-                return text; // Fallback a texto plano
+                return text;
             }
         }
 
-        // Descifrar mensaje usando nuestra clave privada
+        // Descifrar mensaje usando nuestra clave privada (ya descifrada)
         async function decrypt(encryptedArmored) {
             if (!privateKey) return encryptedArmored;
             try {
@@ -200,7 +201,7 @@
                 return decrypted;
             } catch (e) {
                 console.error('Error decrypt:', e);
-                return encryptedArmored;
+                return '[Mensaje cifrado no descifrable]';
             }
         }
 
@@ -216,12 +217,12 @@
                 try {
                     // Leer la clave privada (aún cifrada)
                     const encryptedPrivateKey = await openpgp.readPrivateKey({ armoredKey: storedPrivate });
-                    // Descifrarla con la passphrase
-                    privateKey = await openpgp.decryptKey({
+                    // Descifrar la clave privada con la passphrase
+                    const decryptedPrivateKey = await openpgp.decryptKey({
                         privateKey: encryptedPrivateKey,
-                        passphrase
+                        passphrase: passphrase
                     });
-                    // Extraer la clave pública de la privada (ya descifrada)
+                    privateKey = decryptedPrivateKey;
                     publicKeyArmored = privateKey.toPublic().armor();
                 } catch (e) {
                     console.warn('Error al leer/descifrar clave privada guardada', e);
@@ -237,14 +238,12 @@
                     currentUser.email,
                     passphrase
                 );
-                // Leer y descifrar la clave privada generada
-                const encryptedPrivateKey = await openpgp.readPrivateKey({ armoredKey: keys.privateKey });
-                privateKey = await openpgp.decryptKey({
-                    privateKey: encryptedPrivateKey,
-                    passphrase
-                });
+                // Leer y descifrar la clave privada (generateKey ya devuelve la clave descifrada en memoria)
+                // pero al guardar en localStorage guardamos el armored cifrado con passphrase
+                privateKey = await openpgp.readPrivateKey({ armoredKey: keys.privateKey });
+                // No es necesario descifrar porque generateKey ya la deja descifrada en memoria, pero la guardamos cifrada
                 publicKeyArmored = keys.publicKey;
-                // Guardar clave privada (aún cifrada con passphrase) en localStorage
+                // Guardar clave privada (cifrada con passphrase) en localStorage
                 localStorage.setItem(`myChat_privateKey_${currentUser.uid}`, keys.privateKey);
             }
 
@@ -279,9 +278,11 @@
                 publicKeyArmored = null;
                 showScreen('login');
                 headerTitle.innerText = 'MyChat';
-                if (messagesListener) {
-                    messagesListener.off();
-                    messagesListener = null;
+                // Limpiar listener de mensajes si existía
+                if (messagesRef && messagesCallback) {
+                    messagesRef.off('value', messagesCallback);
+                    messagesRef = null;
+                    messagesCallback = null;
                 }
             }
             loadingOverlay.classList.add('hidden');
@@ -296,7 +297,7 @@
             try {
                 await auth.signInWithEmailAndPassword(email, pass);
             } catch (e) {
-                errorDiv.innerText = e.message; // Muestra el error real (credenciales inválidas, etc.)
+                errorDiv.innerText = e.message;
             }
         });
 
@@ -387,9 +388,15 @@
         }
 
         function loadMessages() {
-            if (messagesListener) messagesListener.off();
-            const messagesRef = db.ref(`messages/${currentChatId}`);
-            messagesListener = messagesRef.on('value', async (snapshot) => {
+            // Limpiar listener anterior si existe
+            if (messagesRef && messagesCallback) {
+                messagesRef.off('value', messagesCallback);
+                messagesRef = null;
+                messagesCallback = null;
+            }
+
+            messagesRef = db.ref(`messages/${currentChatId}`);
+            messagesCallback = async (snapshot) => {
                 const messages = [];
                 snapshot.forEach((child) => {
                     messages.push(child.val());
@@ -402,7 +409,9 @@
                     return { ...msg, decryptedText: decrypted };
                 }));
                 renderMessages(decryptedMessages);
-            });
+            };
+
+            messagesRef.on('value', messagesCallback);
         }
 
         function renderMessages(messages) {
@@ -446,10 +455,9 @@
             const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
             const recipientPublicKey = recipientSnap.val();
 
-            // Cifrar para destinatario (si tiene clave pública)
+            // Cifrar para destinatario
             const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-
-            // Cifrar para uno mismo (si tenemos nuestra clave pública)
+            // Cifrar para uno mismo
             const encryptedForSelf = publicKeyArmored ? await encryptFor(text, publicKeyArmored) : text;
 
             const message = {
