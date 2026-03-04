@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (Web Crypto)</title>
+    <title>MyChat Web (Web Crypto - corregido)</title>
     <style>
-        /* Mismos estilos, los omito por brevedad - copia los de la respuesta anterior */
+        /* Mismos estilos que antes (los omito por brevedad, copia los de respuestas anteriores) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -45,7 +45,7 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .warning { color: #ff9800; font-weight: bold; }
     </style>
-    <!-- Solo Firebase, nada de Tink -->
+    <!-- Solo Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
 </head>
 <body>
@@ -157,26 +157,20 @@
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
 
-        // --- Funciones de cifrado con Web Crypto API ---
+        // --- Funciones de cifrado con Web Crypto API (igual que antes) ---
 
-        // Generar par de claves ECDH con curva P-256
         async function generateKeyPair() {
             return await window.crypto.subtle.generateKey(
-                {
-                    name: "ECDH",
-                    namedCurve: "P-256"
-                },
-                true,  // extraíble para poder exportar
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
                 ["deriveKey", "deriveBits"]
             );
         }
 
-        // Exportar clave pública a formato JWK (JSON)
         async function exportPublicKey(publicKey) {
             return await window.crypto.subtle.exportKey("jwk", publicKey);
         }
 
-        // Importar clave pública desde JWK
         async function importPublicKey(jwk) {
             return await window.crypto.subtle.importKey(
                 "jwk",
@@ -187,17 +181,12 @@
             );
         }
 
-        // Derivar secreto compartido y convertirlo en clave AES-GCM
         async function deriveAesKey(privateKey, publicKey) {
-            // Derivar bits compartidos
             const sharedSecret = await window.crypto.subtle.deriveBits(
                 { name: "ECDH", public: publicKey },
                 privateKey,
-                256  // 256 bits
+                256
             );
-
-            // Aplicar HKDF para obtener una clave AES de 256 bits
-            // Usamos un salt fijo (puede mejorarse) y "MyChat" como info
             const salt = new TextEncoder().encode("MyChatSalt");
             const info = new TextEncoder().encode("MyChat");
             const hkdfKey = await window.crypto.subtle.importKey(
@@ -221,20 +210,18 @@
             );
         }
 
-        // Cifrar mensaje para un destinatario (dada su clave pública)
         async function encryptFor(text, recipientPublicKeyJwk) {
             if (!keyPair || !recipientPublicKeyJwk) return text;
             try {
                 const recipientPublicKey = await importPublicKey(recipientPublicKeyJwk);
                 const aesKey = await deriveAesKey(keyPair.privateKey, recipientPublicKey);
-                const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 96 bits
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
                 const encoded = new TextEncoder().encode(text);
                 const ciphertext = await window.crypto.subtle.encrypt(
                     { name: "AES-GCM", iv: iv },
                     aesKey,
                     encoded
                 );
-                // Devolvemos iv + ciphertext en base64
                 const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
                 combined.set(iv, 0);
                 combined.set(new Uint8Array(ciphertext), iv.length);
@@ -245,7 +232,6 @@
             }
         }
 
-        // Descifrar mensaje usando nuestra clave privada y la clave pública del remitente
         async function decrypt(encryptedBase64, senderPublicKeyJwk) {
             if (!keyPair || !senderPublicKeyJwk) return encryptedBase64;
             try {
@@ -266,7 +252,7 @@
             }
         }
 
-        // --- Gestión de usuario y claves ---
+        // --- Gestión de usuario y claves (con migración automática) ---
         async function ensureUserKeys() {
             if (!currentUser) return;
 
@@ -275,7 +261,6 @@
             if (stored) {
                 try {
                     const keyData = JSON.parse(stored);
-                    // Importar clave privada
                     const privateKey = await window.crypto.subtle.importKey(
                         "jwk",
                         keyData.privateKey,
@@ -283,7 +268,6 @@
                         true,
                         ["deriveKey", "deriveBits"]
                     );
-                    // Importar clave pública
                     const publicKey = await window.crypto.subtle.importKey(
                         "jwk",
                         keyData.publicKey,
@@ -294,17 +278,16 @@
                     keyPair = { privateKey, publicKey };
                     publicKeyJwk = keyData.publicKey;
                 } catch (e) {
-                    console.warn("Error cargando claves", e);
+                    console.warn("Error cargando claves del almacenamiento local", e);
                     keyPair = null;
                 }
             }
 
-            // Si no hay, generar nuevo par
+            // Si no hay claves en localStorage o fallaron, generar nuevas
             if (!keyPair) {
                 const newKeyPair = await generateKeyPair();
                 const privJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.privateKey);
                 const pubJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.publicKey);
-                // Guardar en localStorage (no incluir parámetros privados sensibles en texto claro, pero es un ejemplo)
                 localStorage.setItem(`myChat_keys_${currentUser.uid}`, JSON.stringify({
                     privateKey: privJwk,
                     publicKey: pubJwk
@@ -313,34 +296,61 @@
                 publicKeyJwk = pubJwk;
             }
 
-            // Guardar clave pública en Firebase
+            // --- MIGRACIÓN: Comprobar el formato de la clave pública en Firebase ---
             const snapshot = await db.ref(`users/${currentUser.uid}/publicKey`).once('value');
-            const publicKeyString = JSON.stringify(publicKeyJwk);
-            if (!snapshot.exists() || snapshot.val() !== publicKeyString) {
-                await db.ref(`users/${currentUser.uid}`).set({
-                    userId: currentUser.uid,
-                    displayName: currentUser.displayName || currentUser.email,
-                    email: currentUser.email,
+            const firebasePublicKey = snapshot.val();
+
+            // Función para verificar si es un JWK válido
+            function isValidJwk(str) {
+                if (!str) return false;
+                try {
+                    const parsed = JSON.parse(str);
+                    return parsed && parsed.kty === "EC" && parsed.crv === "P-256";
+                } catch {
+                    return false;
+                }
+            }
+
+            // Si no es un JWK válido (porque es el antiguo formato Tink o está vacío), lo sobrescribimos
+            if (!isValidJwk(firebasePublicKey)) {
+                console.log("Migrando clave pública de usuario a formato JWK");
+                const publicKeyString = JSON.stringify(publicKeyJwk);
+                await db.ref(`users/${currentUser.uid}`).update({
                     publicKey: publicKeyString
                 });
             } else {
-                await db.ref(`users/${currentUser.uid}`).update({
-                    displayName: currentUser.displayName || currentUser.email,
-                    email: currentUser.email
-                });
+                // Si ya es JWK, aseguramos que coincida con nuestra clave local (por si acaso)
+                const currentPublicKeyString = JSON.stringify(publicKeyJwk);
+                if (firebasePublicKey !== currentPublicKeyString) {
+                    await db.ref(`users/${currentUser.uid}`).update({
+                        publicKey: currentPublicKeyString
+                    });
+                }
             }
+
+            // También actualizamos otros datos por si cambió el nombre
+            await db.ref(`users/${currentUser.uid}`).update({
+                displayName: currentUser.displayName || currentUser.email,
+                email: currentUser.email
+            });
         }
 
-        // --- Auth ---
+        // --- Auth con manejo de errores mejorado ---
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
                 loadingOverlay.classList.remove('hidden');
-                await ensureUserKeys();
-                showScreen('users');
-                loadUsersList();
-                headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
-                loadingOverlay.classList.add('hidden');
+                try {
+                    await ensureUserKeys();
+                    showScreen('users');
+                    loadUsersList();
+                    headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
+                } catch (e) {
+                    console.error("Error en inicialización de usuario", e);
+                    alert("Error al cargar tus datos. Por favor, cierra sesión y vuelve a intentarlo.");
+                } finally {
+                    loadingOverlay.classList.add('hidden');
+                }
             } else {
                 currentUser = null;
                 keyPair = null;
@@ -352,6 +362,7 @@
                     messagesRef = null;
                     messagesCallback = null;
                 }
+                loadingOverlay.classList.add('hidden');
             }
         });
 
@@ -359,10 +370,12 @@
         document.getElementById('loginBtn').addEventListener('click', async () => {
             const email = document.getElementById('loginEmail').value;
             const pass = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            errorDiv.innerText = '';
             try {
                 await auth.signInWithEmailAndPassword(email, pass);
             } catch (e) {
-                document.getElementById('loginError').innerText = e.message;
+                errorDiv.innerText = e.message;
             }
         });
 
@@ -379,19 +392,23 @@
             const name = document.getElementById('regName').value.trim();
             const email = document.getElementById('regEmail').value.trim();
             const pass = document.getElementById('regPassword').value;
+            const errorDiv = document.getElementById('registerError');
+            errorDiv.innerText = '';
             if (!name || !email || pass.length < 6) {
-                document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
+                errorDiv.innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
                 return;
             }
             try {
                 const cred = await auth.createUserWithEmailAndPassword(email, pass);
                 const user = cred.user;
                 await user.updateProfile({ displayName: name });
+                // No recargamos el usuario inmediatamente, dejamos que onAuthStateChanged lo haga
+                // Pero a veces Firebase tarda en propagar el displayName, así que forzamos recarga
                 await user.reload();
-                currentUser = auth.currentUser;
+                currentUser = auth.currentUser; // actualizar referencia
                 // Las claves se generarán en onAuthStateChanged
             } catch (e) {
-                document.getElementById('registerError').innerText = e.message;
+                errorDiv.innerText = e.message;
             }
         });
 
@@ -401,7 +418,7 @@
             menu.classList.remove('show');
         });
 
-        // --- Lista de usuarios ---
+        // --- Lista de usuarios (igual) ---
         function loadUsersList() {
             const usersRef = db.ref('users');
             usersRef.on('value', (snapshot) => {
@@ -437,7 +454,7 @@
             }
         }
 
-        // --- Chat ---
+        // --- Chat con manejo de claves públicas inválidas ---
         function openChat(recipient) {
             currentRecipientId = recipient.userId;
             currentRecipientName = recipient.displayName || recipient.email;
@@ -461,22 +478,31 @@
                 });
                 messages.sort((a, b) => a.timestamp - b.timestamp);
 
-                // Obtener clave pública del otro usuario para descifrar
-                const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
+                // Obtener clave pública del otro usuario (si es JSON válido)
                 let otherPublicKeyJwk = null;
-                if (otherUserId) {
-                    const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
-                    const pubStr = snap.val();
-                    if (pubStr) {
-                        try {
-                            otherPublicKeyJwk = JSON.parse(pubStr);
-                        } catch (e) {}
+                if (messages.length > 0) {
+                    const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
+                    if (otherUserId) {
+                        const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
+                        const pubStr = snap.val();
+                        if (pubStr) {
+                            try {
+                                otherPublicKeyJwk = JSON.parse(pubStr);
+                                // Verificar que sea un JWK válido
+                                if (!otherPublicKeyJwk.kty || !otherPublicKeyJwk.crv) {
+                                    otherPublicKeyJwk = null;
+                                }
+                            } catch {
+                                otherPublicKeyJwk = null;
+                            }
+                        }
                     }
                 }
 
                 const decryptedMessages = await Promise.all(messages.map(async (msg) => {
                     const isFromSelf = msg.fromUserId === currentUser.uid;
                     const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
+                    // Para mensajes propios, usamos nuestra propia clave pública; para recibidos, la del otro
                     const senderPublicKey = isFromSelf ? publicKeyJwk : otherPublicKeyJwk;
                     const decrypted = senderPublicKey ? await decrypt(encryptedText, senderPublicKey) : encryptedText;
                     return { ...msg, decryptedText: decrypted };
@@ -524,14 +550,25 @@
             if (!text || !currentChatId || !keyPair) return;
             input.value = '';
 
-            // Obtener clave pública del destinatario
+            // Obtener clave pública del destinatario y verificar que sea JSON válido
             const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
             const recipientPublicKeyStr = recipientSnap.val();
-            const recipientPublicKey = recipientPublicKeyStr ? JSON.parse(recipientPublicKeyStr) : null;
+            let recipientPublicKey = null;
+            if (recipientPublicKeyStr) {
+                try {
+                    recipientPublicKey = JSON.parse(recipientPublicKeyStr);
+                    // Validar que tenga los campos esperados
+                    if (!recipientPublicKey.kty || !recipientPublicKey.crv) {
+                        recipientPublicKey = null;
+                    }
+                } catch {
+                    recipientPublicKey = null;
+                }
+            }
 
-            // Cifrar para destinatario
+            // Cifrar para destinatario (si tenemos clave válida)
             const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-            // Cifrar para uno mismo
+            // Cifrar para uno mismo (siempre tenemos nuestra clave)
             const encryptedForSelf = publicKeyJwk ? await encryptFor(text, publicKeyJwk) : text;
 
             const message = {
@@ -553,7 +590,7 @@
             });
         }
 
-        // --- Perfil ---
+        // --- Perfil (igual) ---
         profileLink.addEventListener('click', (e) => {
             e.preventDefault();
             menu.classList.remove('show');
