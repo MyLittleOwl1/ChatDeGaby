@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (corregido)</title>
+    <title>MyChat Web (libsodium)</title>
     <style>
-        /* Mismos estilos que antes (por brevedad se omiten, pero debes copiarlos) */
+        /* Mismos estilos, los omito por brevedad */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -45,8 +45,10 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .warning { color: #ff9800; font-weight: bold; }
     </style>
-    <!-- Solo Firebase -->
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
+    <!-- sodium-plus (libsodium para JS) -->
+    <script src="https://cdn.jsdelivr.net/npm/sodium-plus@0.3.0/dist/sodium-plus.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -55,7 +57,7 @@
         <div>Cargando MyChat...</div>
     </div>
 
-    <!-- Cabecera y menú -->
+    <!-- Mismas pantallas que antes -->
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <button class="menu-btn" id="menuToggle">☰</button>
@@ -65,7 +67,6 @@
         </div>
     </header>
 
-    <!-- Pantalla de login -->
     <div id="loginScreen" class="screen active">
         <div style="margin-top: 40px; text-align: center;">
             <h3>Bienvenido a MyChat</h3>
@@ -78,7 +79,6 @@
         <div id="loginError" class="error"></div>
     </div>
 
-    <!-- Pantalla de registro -->
     <div id="registerScreen" class="screen">
         <h3>Crear cuenta</h3>
         <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
@@ -89,13 +89,11 @@
         <div id="registerError" class="error"></div>
     </div>
 
-    <!-- Lista de usuarios -->
     <div id="usersScreen" class="screen">
         <div id="usersList" style="flex:1;"></div>
         <div id="noUsersMessage" class="info" style="display: none;">No hay otros usuarios registrados</div>
     </div>
 
-    <!-- Chat -->
     <div id="chatScreen" class="screen">
         <div id="messagesArea"></div>
         <div id="chatFooter">
@@ -104,7 +102,6 @@
         </div>
     </div>
 
-    <!-- Perfil -->
     <div id="profileScreen" class="screen">
         <h3>Mi perfil</h3>
         <div class="input-group"><input type="text" id="profileName" placeholder="Nombre" /></div>
@@ -118,8 +115,12 @@
 </div>
 
 <script>
-    (function() {
-        // --- Inicialización Firebase ---
+    (async function() {
+        // Inicializar sodium
+        const { SodiumPlus } = window.sodiumPlus;
+        const sodium = await SodiumPlus.auto();
+
+        // Inicializar Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
             authDomain: "mychat-4fbf2.firebaseapp.com",
@@ -133,10 +134,10 @@
         const db = firebase.database();
         const auth = firebase.auth();
 
-        // --- Variables globales ---
+        // Variables globales
         let currentUser = null;
-        let keyPair = null;            // CryptoKeyPair (pública/privada)
-        let publicKeyJwk = null;       // Clave pública en formato JWK
+        let keyPair = null;              // { privateKey: X, publicKey: X } (en formato Uint8Array)
+        let publicKeyBase64 = null;      // clave pública en base64 para Firebase
         let currentChatId = null;
         let currentRecipientId = null;
         let currentRecipientName = null;
@@ -157,172 +158,93 @@
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
 
-        // --- Funciones de cifrado con Web Crypto API ---
+        // --- Funciones criptográficas con libsodium ---
+
+        // Generar par de claves (Curve25519)
         async function generateKeyPair() {
-            return await window.crypto.subtle.generateKey(
-                { name: "ECDH", namedCurve: "P-256" },
-                true,
-                ["deriveKey", "deriveBits"]
-            );
+            const keypair = await sodium.crypto_box_keypair();
+            return {
+                privateKey: await sodium.crypto_box_secretkey(keypair),
+                publicKey: await sodium.crypto_box_publickey(keypair)
+            };
         }
 
-        async function exportPublicKey(publicKey) {
-            return await window.crypto.subtle.exportKey("jwk", publicKey);
-        }
-
-        async function importPublicKey(jwk) {
-            return await window.crypto.subtle.importKey(
-                "jwk",
-                jwk,
-                { name: "ECDH", namedCurve: "P-256" },
-                true,
-                []
-            );
-        }
-
-        async function deriveAesKey(privateKey, publicKey) {
-            const sharedSecret = await window.crypto.subtle.deriveBits(
-                { name: "ECDH", public: publicKey },
-                privateKey,
-                256
-            );
-            const salt = new TextEncoder().encode("MyChatSalt");
-            const info = new TextEncoder().encode("MyChat");
-            const hkdfKey = await window.crypto.subtle.importKey(
-                "raw",
-                sharedSecret,
-                "HKDF",
-                false,
-                ["deriveKey"]
-            );
-            return await window.crypto.subtle.deriveKey(
-                {
-                    name: "HKDF",
-                    hash: "SHA-256",
-                    salt: salt,
-                    info: info
-                },
-                hkdfKey,
-                { name: "AES-GCM", length: 256 },
-                false,
-                ["encrypt", "decrypt"]
-            );
-        }
-
-        async function encryptFor(text, recipientPublicKeyJwk) {
-            if (!keyPair || !recipientPublicKeyJwk) return text;
+        // Cifrar mensaje para un destinatario (con su clave pública)
+        async function encryptFor(text, recipientPublicKeyBase64) {
+            if (!keyPair || !recipientPublicKeyBase64) return text;
             try {
-                const recipientPublicKey = await importPublicKey(recipientPublicKeyJwk);
-                const aesKey = await deriveAesKey(keyPair.privateKey, recipientPublicKey);
-                const iv = window.crypto.getRandomValues(new Uint8Array(12));
-                const encoded = new TextEncoder().encode(text);
-                const ciphertext = await window.crypto.subtle.encrypt(
-                    { name: "AES-GCM", iv: iv },
-                    aesKey,
-                    encoded
-                );
-                const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
-                combined.set(iv, 0);
-                combined.set(new Uint8Array(ciphertext), iv.length);
+                const recipientPublicKey = Uint8Array.from(atob(recipientPublicKeyBase64), c => c.charCodeAt(0));
+                // Generar nonce aleatorio
+                const nonce = await sodium.randombytes_buf(24);
+                const messageUint8 = new TextEncoder().encode(text);
+                const ciphertext = await sodium.crypto_box_easy(messageUint8, nonce, recipientPublicKey, keyPair.privateKey);
+                // Devolver nonce + ciphertext en base64
+                const combined = new Uint8Array(nonce.length + ciphertext.length);
+                combined.set(nonce, 0);
+                combined.set(ciphertext, nonce.length);
                 return btoa(String.fromCharCode(...combined));
             } catch (e) {
-                console.error("Error encryptFor:", e);
+                console.error('Error encryptFor:', e);
                 return text;
             }
         }
 
-        async function decrypt(encryptedBase64, senderPublicKeyJwk) {
-            if (!keyPair || !senderPublicKeyJwk) return encryptedBase64;
+        // Descifrar mensaje (con nuestra clave privada y la clave pública del remitente)
+        async function decrypt(encryptedBase64, senderPublicKeyBase64) {
+            if (!keyPair || !senderPublicKeyBase64) return encryptedBase64;
             try {
-                const senderPublicKey = await importPublicKey(senderPublicKeyJwk);
-                const aesKey = await deriveAesKey(keyPair.privateKey, senderPublicKey);
                 const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-                const iv = combined.slice(0, 12);
-                const ciphertext = combined.slice(12);
-                const decrypted = await window.crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv: iv },
-                    aesKey,
-                    ciphertext
-                );
+                const nonce = combined.slice(0, 24);
+                const ciphertext = combined.slice(24);
+                const senderPublicKey = Uint8Array.from(atob(senderPublicKeyBase64), c => c.charCodeAt(0));
+                const decrypted = await sodium.crypto_box_open_easy(ciphertext, nonce, senderPublicKey, keyPair.privateKey);
                 return new TextDecoder().decode(decrypted);
             } catch (e) {
-                console.error("Error decrypt:", e);
-                return "[No se pudo descifrar]";
+                console.error('Error decrypt:', e);
+                return '[No se pudo descifrar]';
             }
         }
 
-        // --- Gestión de usuario y claves (con migración) ---
+        // --- Gestión de usuario y claves ---
         async function ensureUserKeys() {
             if (!currentUser) return;
 
-            // Cargar o generar claves (igual que antes)
-            const stored = localStorage.getItem(`myChat_keys_${currentUser.uid}`);
+            // Cargar claves desde localStorage
+            const stored = localStorage.getItem(`myChat_sodium_${currentUser.uid}`);
             if (stored) {
                 try {
-                    const keyData = JSON.parse(stored);
-                    const privateKey = await window.crypto.subtle.importKey(
-                        "jwk",
-                        keyData.privateKey,
-                        { name: "ECDH", namedCurve: "P-256" },
-                        true,
-                        ["deriveKey", "deriveBits"]
-                    );
-                    const publicKey = await window.crypto.subtle.importKey(
-                        "jwk",
-                        keyData.publicKey,
-                        { name: "ECDH", namedCurve: "P-256" },
-                        true,
-                        []
-                    );
-                    keyPair = { privateKey, publicKey };
-                    publicKeyJwk = keyData.publicKey;
+                    const data = JSON.parse(stored);
+                    keyPair = {
+                        privateKey: Uint8Array.from(atob(data.privateKey), c => c.charCodeAt(0)),
+                        publicKey: Uint8Array.from(atob(data.publicKey), c => c.charCodeAt(0))
+                    };
+                    publicKeyBase64 = data.publicKey;
                 } catch (e) {
-                    console.warn("Error cargando claves locales", e);
+                    console.warn('Error cargando claves', e);
                     keyPair = null;
                 }
             }
 
+            // Si no hay, generar nuevas
             if (!keyPair) {
-                const newKeyPair = await generateKeyPair();
-                const privJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.privateKey);
-                const pubJwk = await window.crypto.subtle.exportKey("jwk", newKeyPair.publicKey);
-                localStorage.setItem(`myChat_keys_${currentUser.uid}`, JSON.stringify({
-                    privateKey: privJwk,
-                    publicKey: pubJwk
+                const newKeys = await generateKeyPair();
+                const privB64 = btoa(String.fromCharCode(...newKeys.privateKey));
+                const pubB64 = btoa(String.fromCharCode(...newKeys.publicKey));
+                localStorage.setItem(`myChat_sodium_${currentUser.uid}`, JSON.stringify({
+                    privateKey: privB64,
+                    publicKey: pubB64
                 }));
-                keyPair = newKeyPair;
-                publicKeyJwk = pubJwk;
+                keyPair = newKeys;
+                publicKeyBase64 = pubB64;
             }
 
-            // --- Migrar/actualizar clave pública en Firebase ---
-            const snapshot = await db.ref(`users/${currentUser.uid}/publicKey`).once('value');
-            const firebasePublicKey = snapshot.val();
-
-            function isValidJwk(str) {
-                if (!str) return false;
-                try {
-                    const parsed = JSON.parse(str);
-                    return parsed && parsed.kty === "EC" && parsed.crv === "P-256";
-                } catch {
-                    return false;
-                }
-            }
-
-            if (!isValidJwk(firebasePublicKey)) {
-                console.log("Migrando clave pública a JWK para", currentUser.uid);
-                await db.ref(`users/${currentUser.uid}`).update({
-                    userId: currentUser.uid,
-                    displayName: currentUser.displayName || currentUser.email,
-                    email: currentUser.email,
-                    publicKey: JSON.stringify(publicKeyJwk)
-                });
-            } else {
-                // Asegurar que los datos del usuario estén actualizados
-                await db.ref(`users/${currentUser.uid}`).update({
-                    displayName: currentUser.displayName || currentUser.email,
-                    email: currentUser.email
-                });
-            }
+            // Guardar clave pública en Firebase (sobrescribir si existe)
+            await db.ref(`users/${currentUser.uid}`).set({
+                userId: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email,
+                email: currentUser.email,
+                publicKey: publicKeyBase64
+            });
         }
 
         // --- Auth ---
@@ -336,15 +258,15 @@
                     loadUsersList();
                     headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
                 } catch (e) {
-                    console.error("Error en inicialización", e);
-                    alert("Error al cargar tus datos. Por favor, recarga la página.");
+                    console.error(e);
+                    alert('Error al cargar usuario');
                 } finally {
                     loadingOverlay.classList.add('hidden');
                 }
             } else {
                 currentUser = null;
                 keyPair = null;
-                publicKeyJwk = null;
+                publicKeyBase64 = null;
                 showScreen('login');
                 headerTitle.innerText = 'MyChat';
                 if (messagesRef && messagesCallback) {
@@ -387,13 +309,9 @@
                 const cred = await auth.createUserWithEmailAndPassword(email, pass);
                 const user = cred.user;
                 await user.updateProfile({ displayName: name });
-                // A veces el reload da error 400, pero podemos continuar sin él
-                try {
-                    await user.reload();
-                } catch (reloadErr) {
-                    console.warn("Error en reload, continuando...", reloadErr);
-                }
-                currentUser = auth.currentUser; // actualizar referencia
+                // Forzar recarga para obtener displayName
+                await user.reload();
+                currentUser = auth.currentUser;
                 // Las claves se generarán en onAuthStateChanged
             } catch (e) {
                 document.getElementById('registerError').innerText = e.message;
@@ -406,21 +324,15 @@
             menu.classList.remove('show');
         });
 
-        // --- Lista de usuarios (con corrección de userId) ---
+        // --- Lista de usuarios (con asignación de userId) ---
         function loadUsersList() {
             const usersRef = db.ref('users');
             usersRef.on('value', (snapshot) => {
                 const users = [];
                 snapshot.forEach((child) => {
-                    const user = child.val();
-                    // Si el objeto no tiene userId, usar la clave de Firebase (el UID)
-                    if (!user.userId) {
-                        user.userId = child.key;
-                    }
-                    // Excluir al usuario actual
-                    if (user.userId !== currentUser?.uid) {
-                        users.push(user);
-                    }
+                    let user = child.val();
+                    if (!user.userId) user.userId = child.key;
+                    if (user.userId !== currentUser?.uid) users.push(user);
                 });
                 renderUsersList(users);
             });
@@ -451,7 +363,6 @@
 
         // --- Chat ---
         function openChat(recipient) {
-            // Asegurar que recipient tiene userId
             currentRecipientId = recipient.userId;
             currentRecipientName = recipient.displayName || recipient.email;
             const ids = [currentUser.uid, recipient.userId].sort();
@@ -475,27 +386,19 @@
                 messages.sort((a, b) => a.timestamp - b.timestamp);
 
                 // Obtener clave pública del otro usuario
-                let otherPublicKeyJwk = null;
+                let otherPublicKey = null;
                 if (messages.length > 0) {
                     const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
                     if (otherUserId) {
                         const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
-                        const pubStr = snap.val();
-                        if (pubStr) {
-                            try {
-                                otherPublicKeyJwk = JSON.parse(pubStr);
-                                if (!otherPublicKeyJwk.kty) otherPublicKeyJwk = null;
-                            } catch {
-                                otherPublicKeyJwk = null;
-                            }
-                        }
+                        otherPublicKey = snap.val();
                     }
                 }
 
                 const decryptedMessages = await Promise.all(messages.map(async (msg) => {
                     const isFromSelf = msg.fromUserId === currentUser.uid;
                     const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
-                    const senderPublicKey = isFromSelf ? publicKeyJwk : otherPublicKeyJwk;
+                    const senderPublicKey = isFromSelf ? publicKeyBase64 : otherPublicKey;
                     const decrypted = senderPublicKey ? await decrypt(encryptedText, senderPublicKey) : encryptedText;
                     return { ...msg, decryptedText: decrypted };
                 }));
@@ -544,19 +447,10 @@
 
             // Obtener clave pública del destinatario
             const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
-            const recipientPublicKeyStr = recipientSnap.val();
-            let recipientPublicKey = null;
-            if (recipientPublicKeyStr) {
-                try {
-                    recipientPublicKey = JSON.parse(recipientPublicKeyStr);
-                    if (!recipientPublicKey.kty) recipientPublicKey = null;
-                } catch {
-                    recipientPublicKey = null;
-                }
-            }
+            const recipientPublicKey = recipientSnap.val();
 
             const encryptedForRecipient = recipientPublicKey ? await encryptFor(text, recipientPublicKey) : text;
-            const encryptedForSelf = publicKeyJwk ? await encryptFor(text, publicKeyJwk) : text;
+            const encryptedForSelf = publicKeyBase64 ? await encryptFor(text, publicKeyBase64) : text;
 
             const message = {
                 fromUserId: currentUser.uid,
@@ -577,7 +471,7 @@
             });
         }
 
-        // --- Perfil (sin cambios) ---
+        // --- Perfil (igual) ---
         profileLink.addEventListener('click', (e) => {
             e.preventDefault();
             menu.classList.remove('show');
