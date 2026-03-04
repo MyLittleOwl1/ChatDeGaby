@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyChat Web</title>
     <style>
-        /* (mismos estilos, se omiten por brevedad) */
+        /* (mismos estilos) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; }
@@ -40,9 +40,14 @@
         .error { color: red; font-size: 0.9rem; margin: 8px 0; }
         .hidden { display: none; }
     </style>
+    <!-- Cargar Firebase primero -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
+    <!-- Cargar Tink como script global (UMD) -->
+    <script src="https://unpkg.com/tink-crypto@0.1.0/dist/index.umd.js"></script>
 </head>
 <body>
 <div id="app">
+    <!-- mismo HTML -->
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <button class="menu-btn" id="menuToggle">☰</button>
@@ -65,7 +70,7 @@
         <div id="loginError" class="error"></div>
     </div>
 
-    <!-- Register screen (nuevo) -->
+    <!-- Register screen -->
     <div id="registerScreen" class="screen">
         <h3>Crear cuenta</h3>
         <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
@@ -103,12 +108,19 @@
     </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
-<script type="module">
-    // ========== IMPORTAR TINK (desde esm.sh, más confiable) ==========
-    import { hybrid, keyset, proto, util } from 'https://esm.sh/tink-crypto@0.1.0?target=es2020';
+<script>
+// Ahora el código va en una etiqueta script normal, no module, para poder usar la variable global tink
+// Aseguramos que tink esté disponible (window.tink)
 
-    // ========== CONFIGURACIÓN FIREBASE ==========
+(function() {
+    // Verificar que tink se cargó
+    if (!window.tink) {
+        console.error('Tink no se cargó correctamente');
+        alert('Error cargando la biblioteca de cifrado. Recarga la página.');
+        return;
+    }
+
+    // Configuración Firebase
     const firebaseConfig = {
         apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
         authDomain: "mychat-4fbf2.firebaseapp.com",
@@ -122,9 +134,9 @@
     const db = firebase.database();
     const auth = firebase.auth();
 
-    // ========== VARIABLES GLOBALES ==========
+    // Variables globales
     let currentUser = null;
-    let keysetHandle = null;              // Tink KeysetHandle (privado)
+    let keysetHandle = null;
     let currentChatId = null;
     let currentRecipientId = null;
     let currentRecipientName = null;
@@ -142,56 +154,54 @@
     const profileLink = document.getElementById('profileLink');
     const logoutLink = document.getElementById('logoutLink');
 
-    // ========== FUNCIONES DE CRIPTO (TINK) ==========
+    // Funciones de cripto usando tink global
     async function initTink() {
         try {
-            await hybrid.HybridConfig.register();
-            console.log('Tink inicializado correctamente');
+            await tink.hybrid.HybridConfig.register();
+            console.log('Tink inicializado');
         } catch (e) {
-            console.error('Error al inicializar Tink:', e);
-            alert('Error de inicialización criptográfica. Recarga la página.');
+            console.error('Error initTink:', e);
         }
     }
-    await initTink();
 
-    // Generar nuevo par de claves ECIES
+    // Generar nuevo par de claves
     async function generateKeysetHandle() {
-        const template = hybrid.HybridKeyTemplates.ECIES_P256_HKDF_HMAC_SHA256_AES128_GCM;
-        return await keyset.KeysetHandle.generateNew(template);
+        const template = tink.hybrid.HybridKeyTemplates.ECIES_P256_HKDF_HMAC_SHA256_AES128_GCM;
+        return await tink.keyset.KeysetHandle.generateNew(template);
     }
 
-    // Guardar keyset (privado) en localStorage (serializado en texto claro)
+    // Guardar keyset en localStorage
     async function storeKeyset(handle) {
-        const serialized = await proto.TinkProtoKeysetFormat.serializeKeyset(handle, null);
+        const serialized = await tink.proto.TinkProtoKeysetFormat.serializeKeyset(handle, null);
         localStorage.setItem('myChat_privateKeyset', btoa(String.fromCharCode(...new Uint8Array(serialized))));
     }
 
-    // Cargar keyset desde localStorage
+    // Cargar keyset
     async function loadKeyset() {
         const stored = localStorage.getItem('myChat_privateKeyset');
         if (!stored) return null;
         try {
             const binary = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
-            return await proto.TinkProtoKeysetFormat.parseKeyset(binary, null);
+            return await tink.proto.TinkProtoKeysetFormat.parseKeyset(binary, null);
         } catch (e) {
-            console.warn('Error al cargar keyset', e);
+            console.warn('Error loadKeyset', e);
             return null;
         }
     }
 
-    // Obtener clave pública en formato base64 (serializada sin secreto)
+    // Obtener clave pública en base64
     async function getPublicKeyString(handle) {
         const publicHandle = handle.getPublicKeysetHandle();
-        const serialized = await proto.TinkProtoKeysetFormat.serializeKeysetWithoutSecret(publicHandle);
+        const serialized = await tink.proto.TinkProtoKeysetFormat.serializeKeysetWithoutSecret(publicHandle);
         return btoa(String.fromCharCode(...new Uint8Array(serialized)));
     }
 
-    // Cifrar un mensaje para un destinatario (clave pública en base64)
+    // Cifrar para destinatario
     async function encryptFor(text, recipientPublicKeyBase64) {
         try {
             const publicKeyBytes = Uint8Array.from(atob(recipientPublicKeyBase64), c => c.charCodeAt(0));
-            const publicHandle = await proto.TinkProtoKeysetFormat.parseKeysetWithoutSecret(publicKeyBytes);
-            const hybridEncrypt = await publicHandle.getPrimitive(hybrid.HybridEncrypt);
+            const publicHandle = await tink.proto.TinkProtoKeysetFormat.parseKeysetWithoutSecret(publicKeyBytes);
+            const hybridEncrypt = await publicHandle.getPrimitive(tink.hybrid.HybridEncrypt);
             const ciphertext = await hybridEncrypt.encrypt(new TextEncoder().encode(text), null);
             return btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
         } catch (e) {
@@ -200,11 +210,11 @@
         }
     }
 
-    // Descifrar un mensaje usando nuestra clave privada
+    // Descifrar
     async function decrypt(encryptedBase64) {
         try {
             const ciphertext = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-            const hybridDecrypt = await keysetHandle.getPrimitive(hybrid.HybridDecrypt);
+            const hybridDecrypt = await keysetHandle.getPrimitive(tink.hybrid.HybridDecrypt);
             const plaintext = await hybridDecrypt.decrypt(ciphertext, null);
             return new TextDecoder().decode(plaintext);
         } catch (e) {
@@ -213,30 +223,27 @@
         }
     }
 
-    // ========== GESTIÓN DE USUARIO Y CLAVES ==========
+    // Asegurar claves y datos de usuario en Firebase
     async function ensureUserKeys() {
         if (!currentUser) return;
-        // Si ya tenemos keysetHandle en memoria, no generamos de nuevo
         if (!keysetHandle) {
             keysetHandle = await loadKeyset();
         }
         if (!keysetHandle) {
-            // Generar nuevo keyset
             keysetHandle = await generateKeysetHandle();
             await storeKeyset(keysetHandle);
         }
-        // Asegurar que la clave pública esté en Firebase
         const publicKey = await getPublicKeyString(keysetHandle);
         const snapshot = await db.ref(`users/${currentUser.uid}/publicKey`).once('value');
+        const userData = {
+            userId: currentUser.uid,
+            displayName: currentUser.displayName || currentUser.email,
+            email: currentUser.email,
+            publicKey: publicKey
+        };
         if (!snapshot.exists() || snapshot.val() !== publicKey) {
-            await db.ref(`users/${currentUser.uid}`).set({
-                userId: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email,
-                email: currentUser.email,
-                publicKey: publicKey
-            });
+            await db.ref(`users/${currentUser.uid}`).set(userData);
         } else {
-            // Actualizar otros datos por si cambiaron
             await db.ref(`users/${currentUser.uid}`).update({
                 displayName: currentUser.displayName || currentUser.email,
                 email: currentUser.email
@@ -244,7 +251,7 @@
         }
     }
 
-    // ========== AUTH ==========
+    // Auth state observer
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             currentUser = user;
@@ -272,7 +279,7 @@
         }
     });
 
-    // Mostrar pantalla de registro
+    // Mostrar registro
     document.getElementById('registerBtn').addEventListener('click', () => {
         showScreen('register');
     });
@@ -290,17 +297,14 @@
             return;
         }
         try {
-            // Crear usuario
             const cred = await auth.createUserWithEmailAndPassword(email, pass);
             const user = cred.user;
-            // Actualizar perfil con el nombre
             await user.updateProfile({ displayName: name });
-            // Recargar usuario para obtener displayName actualizado
             await user.reload();
-            currentUser = auth.currentUser; // actualizar referencia
-            // Generar claves (ya se hará en onAuthStateChanged, pero aquí forzamos para que estén listas)
-            await ensureUserKeys();
-            // Navegar a users
+            // onAuthStateChanged se encargará de todo, pero forzamos actualización manual
+            // porque a veces no se refleja inmediatamente
+            currentUser = auth.currentUser;
+            await ensureUserKeys(); // esto usará el displayName actualizado
             showScreen('users');
         } catch (e) {
             document.getElementById('registerError').innerText = e.message;
@@ -314,7 +318,7 @@
         localStorage.removeItem('myChat_privateKeyset');
     });
 
-    // ========== LISTA DE USUARIOS ==========
+    // Lista de usuarios
     function loadUsersList() {
         const usersRef = db.ref('users');
         usersRef.on('value', (snapshot) => {
@@ -345,7 +349,7 @@
         });
     }
 
-    // ========== CHAT ==========
+    // Chat
     function openChat(recipient) {
         currentRecipientId = recipient.userId;
         currentRecipientName = recipient.displayName || recipient.email;
@@ -438,7 +442,7 @@
         });
     }
 
-    // ========== PERFIL ==========
+    // Perfil
     profileLink.addEventListener('click', (e) => {
         e.preventDefault();
         menu.classList.remove('show');
@@ -481,7 +485,7 @@
         }
     });
 
-    // ========== UI ==========
+    // UI Helper
     function showScreen(screenName) {
         loginScreen.classList.remove('active');
         registerScreen.classList.remove('active');
@@ -505,6 +509,10 @@
             menu.classList.remove('show');
         }
     });
+
+    // Inicializar Tink
+    initTink();
+})();
 </script>
 </body>
 </html>
