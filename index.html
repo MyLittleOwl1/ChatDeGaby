@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (libsodium-wrappers)</title>
+    <title>MyChat Web (libsodium-wrappers - con reintento)</title>
     <style>
-        /* Mismos estilos (copia los de respuestas anteriores) */
+        /* Mismos estilos (copia de respuestas anteriores) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -47,7 +47,7 @@
     </style>
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
-    <!-- libsodium-wrappers (oficial, con soporte UMD) -->
+    <!-- libsodium-wrappers (oficial) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/libsodium-wrappers/0.7.13/libsodium-wrappers.min.js"></script>
 </head>
 <body>
@@ -57,7 +57,7 @@
         <div>Cargando MyChat...</div>
     </div>
 
-    <!-- Cabecera y menú -->
+    <!-- Estructura de pantallas (completa, igual que antes) -->
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <button class="menu-btn" id="menuToggle">☰</button>
@@ -67,7 +67,6 @@
         </div>
     </header>
 
-    <!-- Pantalla de login -->
     <div id="loginScreen" class="screen active">
         <div style="margin-top: 40px; text-align: center;">
             <h3>Bienvenido a MyChat</h3>
@@ -80,7 +79,6 @@
         <div id="loginError" class="error"></div>
     </div>
 
-    <!-- Pantalla de registro -->
     <div id="registerScreen" class="screen">
         <h3>Crear cuenta</h3>
         <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
@@ -91,13 +89,11 @@
         <div id="registerError" class="error"></div>
     </div>
 
-    <!-- Lista de usuarios -->
     <div id="usersScreen" class="screen">
         <div id="usersList" style="flex:1;"></div>
         <div id="noUsersMessage" class="info" style="display: none;">No hay otros usuarios registrados</div>
     </div>
 
-    <!-- Chat -->
     <div id="chatScreen" class="screen">
         <div id="messagesArea"></div>
         <div id="chatFooter">
@@ -106,7 +102,6 @@
         </div>
     </div>
 
-    <!-- Perfil -->
     <div id="profileScreen" class="screen">
         <h3>Mi perfil</h3>
         <div class="input-group"><input type="text" id="profileName" placeholder="Nombre" /></div>
@@ -120,451 +115,481 @@
 </div>
 
 <script>
-    (async function() {
-        // Esperar a que libsodium esté listo
-        if (!window.sodium) {
-            console.error('libsodium no se cargó');
-            document.getElementById('loadingOverlay').innerHTML = '<div style="color:red; padding:20px;">Error cargando librería criptográfica. Recarga la página.</div>';
-            return;
-        }
-        await window.sodium.ready;
-        const sodium = window.sodium;
-
-        // Inicializar Firebase
-        const firebaseConfig = {
-            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
-            authDomain: "mychat-4fbf2.firebaseapp.com",
-            databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
-            projectId: "mychat-4fbf2",
-            storageBucket: "mychat-4fbf2.firebasestorage.app",
-            messagingSenderId: "833008491572",
-            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-        const auth = firebase.auth();
-
-        // Variables globales
-        let currentUser = null;
-        let privateKeyHex = null;
-        let publicKeyHex = null;
-        let currentChatId = null;
-        let currentRecipientId = null;
-        let currentRecipientName = null;
-        let messagesRef = null;
-        let messagesCallback = null;
-
-        // Elementos DOM
+    (function() {
+        // Elementos DOM básicos para el overlay
         const loadingOverlay = document.getElementById('loadingOverlay');
-        const loginScreen = document.getElementById('loginScreen');
-        const registerScreen = document.getElementById('registerScreen');
-        const usersScreen = document.getElementById('usersScreen');
-        const chatScreen = document.getElementById('chatScreen');
-        const profileScreen = document.getElementById('profileScreen');
-        const headerTitle = document.getElementById('headerTitle');
-        const menuToggle = document.getElementById('menuToggle');
-        const menu = document.getElementById('menu');
-        const profileLink = document.getElementById('profileLink');
-        const logoutLink = document.getElementById('logoutLink');
-        const noUsersMessage = document.getElementById('noUsersMessage');
+        const app = document.getElementById('app');
 
-        // --- Funciones de utilidad ---
-        function hexToBytes(hex) {
-            if (hex.length % 2 !== 0) throw new Error('Hex inválido');
-            const bytes = new Uint8Array(hex.length / 2);
-            for (let i = 0; i < hex.length; i += 2) {
-                bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-            }
-            return bytes;
+        // Función para mostrar error fatal y ofrecer reintentar
+        function fatalError(msg) {
+            loadingOverlay.innerHTML = `
+                <div style="color:red; padding:20px; text-align:center;">
+                    ${msg}<br><br>
+                    <button onclick="location.reload()" style="padding:10px 20px;">Reintentar</button>
+                </div>
+            `;
+            loadingOverlay.classList.remove('hidden');
         }
 
-        function bytesToHex(bytes) {
-            return Array.from(bytes)
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
+        // Verificar si libsodium se cargó
+        if (typeof window.sodium === 'undefined') {
+            // Esperar un poco por si la carga es lenta
+            let attempts = 0;
+            const checkInterval = setInterval(() => {
+                if (typeof window.sodium !== 'undefined') {
+                    clearInterval(checkInterval);
+                    // Esperar a que esté listo y luego iniciar
+                    window.sodium.ready.then(() => {
+                        startApp();
+                    }).catch(e => {
+                        fatalError('Error al inicializar libsodium: ' + e.message);
+                    });
+                } else if (attempts++ > 10) { // 2.5 segundos
+                    clearInterval(checkInterval);
+                    fatalError('No se pudo cargar la librería criptográfica. Verifica tu conexión.');
+                }
+            }, 250);
+        } else {
+            // Ya está cargado, esperar ready
+            window.sodium.ready.then(() => {
+                startApp();
+            }).catch(e => {
+                fatalError('Error al inicializar libsodium: ' + e.message);
+            });
         }
 
-        // --- Funciones criptográficas (libsodium-wrappers) ---
+        // Función principal de la app
+        function startApp() {
+            const sodium = window.sodium;
 
-        // Generar par de claves Curve25519, devolver en hex
-        function generateKeyPairHex() {
-            const keypair = sodium.crypto_box_keypair();
-            return {
-                publicKeyHex: bytesToHex(keypair.publicKey),
-                privateKeyHex: bytesToHex(keypair.privateKey)
+            // Inicializar Firebase
+            const firebaseConfig = {
+                apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
+                authDomain: "mychat-4fbf2.firebaseapp.com",
+                databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
+                projectId: "mychat-4fbf2",
+                storageBucket: "mychat-4fbf2.firebasestorage.app",
+                messagingSenderId: "833008491572",
+                appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
             };
-        }
+            firebase.initializeApp(firebaseConfig);
+            const db = firebase.database();
+            const auth = firebase.auth();
 
-        // Cifrar mensaje para destinatario (clave pública en hex)
-        function encryptFor(text, recipientPublicKeyHex) {
-            if (!privateKeyHex || !recipientPublicKeyHex) return text;
-            try {
-                const recipientPublicKey = hexToBytes(recipientPublicKeyHex);
-                const myPrivateKey = hexToBytes(privateKeyHex);
-                const nonce = sodium.randombytes_buf(24);
-                const messageUint8 = new TextEncoder().encode(text);
-                const ciphertext = sodium.crypto_box_easy(
-                    messageUint8,
-                    nonce,
-                    recipientPublicKey,
-                    myPrivateKey
-                );
-                // Concatenar nonce + ciphertext
-                const combined = new Uint8Array(nonce.length + ciphertext.length);
-                combined.set(nonce, 0);
-                combined.set(ciphertext, nonce.length);
-                return btoa(String.fromCharCode(...combined));
-            } catch (e) {
-                console.error('Error encryptFor:', e);
-                return text;
+            // Variables globales
+            let currentUser = null;
+            let privateKeyHex = null;
+            let publicKeyHex = null;
+            let currentChatId = null;
+            let currentRecipientId = null;
+            let currentRecipientName = null;
+            let messagesRef = null;
+            let messagesCallback = null;
+
+            // Elementos DOM
+            const loginScreen = document.getElementById('loginScreen');
+            const registerScreen = document.getElementById('registerScreen');
+            const usersScreen = document.getElementById('usersScreen');
+            const chatScreen = document.getElementById('chatScreen');
+            const profileScreen = document.getElementById('profileScreen');
+            const headerTitle = document.getElementById('headerTitle');
+            const menuToggle = document.getElementById('menuToggle');
+            const menu = document.getElementById('menu');
+            const profileLink = document.getElementById('profileLink');
+            const logoutLink = document.getElementById('logoutLink');
+            const noUsersMessage = document.getElementById('noUsersMessage');
+
+            // --- Funciones de utilidad ---
+            function hexToBytes(hex) {
+                if (hex.length % 2 !== 0) throw new Error('Hex inválido');
+                const bytes = new Uint8Array(hex.length / 2);
+                for (let i = 0; i < hex.length; i += 2) {
+                    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+                }
+                return bytes;
             }
-        }
 
-        // Descifrar mensaje (clave pública del remitente en hex)
-        function decrypt(encryptedBase64, senderPublicKeyHex) {
-            if (!privateKeyHex || !senderPublicKeyHex) return encryptedBase64;
-            try {
-                const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-                const nonce = combined.slice(0, 24);
-                const ciphertext = combined.slice(24);
-                const senderPublicKey = hexToBytes(senderPublicKeyHex);
-                const myPrivateKey = hexToBytes(privateKeyHex);
-                const decrypted = sodium.crypto_box_open_easy(
-                    ciphertext,
-                    nonce,
-                    senderPublicKey,
-                    myPrivateKey
-                );
-                return new TextDecoder().decode(decrypted);
-            } catch (e) {
-                console.error('Error decrypt:', e);
-                return '[No se pudo descifrar]';
+            function bytesToHex(bytes) {
+                return Array.from(bytes)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
             }
-        }
 
-        // --- Gestión de usuario y claves ---
-        async function ensureUserKeys() {
-            if (!currentUser) return;
+            // --- Funciones criptográficas (libsodium-wrappers) ---
+            function generateKeyPairHex() {
+                const keypair = sodium.crypto_box_keypair();
+                return {
+                    publicKeyHex: bytesToHex(keypair.publicKey),
+                    privateKeyHex: bytesToHex(keypair.privateKey)
+                };
+            }
 
-            // Cargar claves desde localStorage
-            const stored = localStorage.getItem(`myChat_libsodium_${currentUser.uid}`);
-            if (stored) {
+            function encryptFor(text, recipientPublicKeyHex) {
+                if (!privateKeyHex || !recipientPublicKeyHex) return text;
                 try {
-                    const data = JSON.parse(stored);
-                    privateKeyHex = data.privateKeyHex;
-                    publicKeyHex = data.publicKeyHex;
+                    const recipientPublicKey = hexToBytes(recipientPublicKeyHex);
+                    const myPrivateKey = hexToBytes(privateKeyHex);
+                    const nonce = sodium.randombytes_buf(24);
+                    const messageUint8 = new TextEncoder().encode(text);
+                    const ciphertext = sodium.crypto_box_easy(
+                        messageUint8,
+                        nonce,
+                        recipientPublicKey,
+                        myPrivateKey
+                    );
+                    const combined = new Uint8Array(nonce.length + ciphertext.length);
+                    combined.set(nonce, 0);
+                    combined.set(ciphertext, nonce.length);
+                    return btoa(String.fromCharCode(...combined));
                 } catch (e) {
-                    console.warn('Error cargando claves', e);
-                    privateKeyHex = null;
+                    console.error('Error encryptFor:', e);
+                    return text;
                 }
             }
 
-            // Si no hay, generar nuevas
-            if (!privateKeyHex) {
-                const keys = generateKeyPairHex();
-                privateKeyHex = keys.privateKeyHex;
-                publicKeyHex = keys.publicKeyHex;
-                localStorage.setItem(`myChat_libsodium_${currentUser.uid}`, JSON.stringify(keys));
-            }
-
-            // Guardar clave pública en Firebase (hex)
-            await db.ref(`users/${currentUser.uid}`).set({
-                userId: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email,
-                email: currentUser.email,
-                publicKey: publicKeyHex
-            });
-        }
-
-        // --- Auth ---
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                currentUser = user;
-                loadingOverlay.classList.remove('hidden');
+            function decrypt(encryptedBase64, senderPublicKeyHex) {
+                if (!privateKeyHex || !senderPublicKeyHex) return encryptedBase64;
                 try {
-                    await ensureUserKeys();
-                    showScreen('users');
-                    loadUsersList();
-                    headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
+                    const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+                    const nonce = combined.slice(0, 24);
+                    const ciphertext = combined.slice(24);
+                    const senderPublicKey = hexToBytes(senderPublicKeyHex);
+                    const myPrivateKey = hexToBytes(privateKeyHex);
+                    const decrypted = sodium.crypto_box_open_easy(
+                        ciphertext,
+                        nonce,
+                        senderPublicKey,
+                        myPrivateKey
+                    );
+                    return new TextDecoder().decode(decrypted);
                 } catch (e) {
-                    console.error(e);
-                    alert('Error al cargar usuario');
-                } finally {
-                    loadingOverlay.classList.add('hidden');
-                }
-            } else {
-                currentUser = null;
-                privateKeyHex = null;
-                publicKeyHex = null;
-                showScreen('login');
-                headerTitle.innerText = 'MyChat';
-                if (messagesRef && messagesCallback) {
-                    messagesRef.off('value', messagesCallback);
-                    messagesRef = null;
-                    messagesCallback = null;
+                    console.error('Error decrypt:', e);
+                    return '[No se pudo descifrar]';
                 }
             }
-        });
 
-        // Login
-        document.getElementById('loginBtn').addEventListener('click', async () => {
-            const email = document.getElementById('loginEmail').value;
-            const pass = document.getElementById('loginPassword').value;
-            try {
-                await auth.signInWithEmailAndPassword(email, pass);
-            } catch (e) {
-                document.getElementById('loginError').innerText = e.message;
-            }
-        });
+            // --- Gestión de usuario y claves ---
+            async function ensureUserKeys() {
+                if (!currentUser) return;
 
-        // Mostrar registro
-        document.getElementById('registerBtn').addEventListener('click', () => {
-            showScreen('register');
-        });
-        document.getElementById('backToLogin').addEventListener('click', () => {
-            showScreen('login');
-        });
-
-        // Registro con nombre
-        document.getElementById('registerConfirmBtn').addEventListener('click', async () => {
-            const name = document.getElementById('regName').value.trim();
-            const email = document.getElementById('regEmail').value.trim();
-            const pass = document.getElementById('regPassword').value;
-            if (!name || !email || pass.length < 6) {
-                document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
-                return;
-            }
-            try {
-                const cred = await auth.createUserWithEmailAndPassword(email, pass);
-                const user = cred.user;
-                await user.updateProfile({ displayName: name });
-                // A veces el reload falla, pero podemos continuar
-                try { await user.reload(); } catch {}
-                currentUser = auth.currentUser;
-            } catch (e) {
-                document.getElementById('registerError').innerText = e.message;
-            }
-        });
-
-        logoutLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            auth.signOut();
-            menu.classList.remove('show');
-        });
-
-        // --- Lista de usuarios ---
-        function loadUsersList() {
-            const usersRef = db.ref('users');
-            usersRef.on('value', (snapshot) => {
-                const users = [];
-                snapshot.forEach((child) => {
-                    let user = child.val();
-                    if (!user.userId) user.userId = child.key;
-                    if (user.userId !== currentUser?.uid) users.push(user);
-                });
-                renderUsersList(users);
-            });
-        }
-
-        function renderUsersList(users) {
-            const container = document.getElementById('usersList');
-            container.innerHTML = '';
-            if (users.length === 0) {
-                noUsersMessage.style.display = 'block';
-            } else {
-                noUsersMessage.style.display = 'none';
-                users.forEach(user => {
-                    const div = document.createElement('div');
-                    div.className = 'user-item';
-                    div.innerHTML = `
-                        <div class="user-avatar">${(user.displayName?.[0] || '?')}</div>
-                        <div class="user-info">
-                            <h4>${user.displayName || 'Sin nombre'}</h4>
-                            <p>${user.email}</p>
-                        </div>
-                    `;
-                    div.addEventListener('click', () => openChat(user));
-                    container.appendChild(div);
-                });
-            }
-        }
-
-        // --- Chat ---
-        function openChat(recipient) {
-            currentRecipientId = recipient.userId;
-            currentRecipientName = recipient.displayName || recipient.email;
-            const ids = [currentUser.uid, recipient.userId].sort();
-            currentChatId = ids.join('_');
-            showScreen('chat');
-            headerTitle.innerText = `Chat con ${currentRecipientName}`;
-            loadMessages();
-        }
-
-        function loadMessages() {
-            if (messagesRef && messagesCallback) {
-                messagesRef.off('value', messagesCallback);
-            }
-
-            messagesRef = db.ref(`messages/${currentChatId}`);
-            messagesCallback = async (snapshot) => {
-                const messages = [];
-                snapshot.forEach((child) => {
-                    messages.push(child.val());
-                });
-                messages.sort((a, b) => a.timestamp - b.timestamp);
-
-                // Obtener clave pública del otro usuario
-                let otherPublicKeyHex = null;
-                if (messages.length > 0) {
-                    const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
-                    if (otherUserId) {
-                        const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
-                        otherPublicKeyHex = snap.val();
+                const stored = localStorage.getItem(`myChat_libsodium_${currentUser.uid}`);
+                if (stored) {
+                    try {
+                        const data = JSON.parse(stored);
+                        privateKeyHex = data.privateKeyHex;
+                        publicKeyHex = data.publicKeyHex;
+                    } catch (e) {
+                        console.warn('Error cargando claves', e);
+                        privateKeyHex = null;
                     }
                 }
 
-                const decryptedMessages = await Promise.all(messages.map(async (msg) => {
-                    const isFromSelf = msg.fromUserId === currentUser.uid;
-                    const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
-                    const senderPublicKeyHex = isFromSelf ? publicKeyHex : otherPublicKeyHex;
-                    const decrypted = senderPublicKeyHex ? decrypt(encryptedText, senderPublicKeyHex) : encryptedText;
-                    return { ...msg, decryptedText: decrypted };
-                }));
-                renderMessages(decryptedMessages);
-            };
-
-            messagesRef.on('value', messagesCallback);
-        }
-
-        function renderMessages(messages) {
-            const container = document.getElementById('messagesArea');
-            container.innerHTML = '';
-            let lastDate = '';
-            const dateFormat = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
-            messages.forEach(msg => {
-                const date = new Date(msg.timestamp);
-                const dateStr = dateFormat.format(date);
-                if (dateStr !== lastDate) {
-                    const header = document.createElement('div');
-                    header.className = 'date-header';
-                    header.innerText = dateStr;
-                    container.appendChild(header);
-                    lastDate = dateStr;
+                if (!privateKeyHex) {
+                    const keys = generateKeyPairHex();
+                    privateKeyHex = keys.privateKeyHex;
+                    publicKeyHex = keys.publicKeyHex;
+                    localStorage.setItem(`myChat_libsodium_${currentUser.uid}`, JSON.stringify(keys));
                 }
-                const div = document.createElement('div');
-                div.className = `message ${msg.fromUserId === currentUser.uid ? 'sent' : 'received'}`;
-                div.innerHTML = `
-                    <div>${msg.decryptedText}</div>
-                    <div class="time">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                `;
-                container.appendChild(div);
-            });
-            container.scrollTop = container.scrollHeight;
-        }
 
-        document.getElementById('sendBtn').addEventListener('click', sendMessage);
-        document.getElementById('messageInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
-
-        async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const text = input.value.trim();
-            if (!text || !currentChatId || !privateKeyHex) return;
-            input.value = '';
-
-            const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
-            const recipientPublicKeyHex = recipientSnap.val();
-
-            const encryptedForRecipient = recipientPublicKeyHex ? encryptFor(text, recipientPublicKeyHex) : text;
-            const encryptedForSelf = publicKeyHex ? encryptFor(text, publicKeyHex) : text;
-
-            const message = {
-                fromUserId: currentUser.uid,
-                toUserId: currentRecipientId,
-                text: encryptedForRecipient,
-                senderText: encryptedForSelf,
-                timestamp: Date.now(),
-                messageId: ''
-            };
-
-            const newMsgRef = db.ref(`messages/${currentChatId}`).push();
-            await newMsgRef.set({ ...message, messageId: newMsgRef.key });
-
-            await db.ref(`chats/${currentChatId}`).update({
-                lastMessage: 'Mensaje encriptado',
-                lastTimestamp: message.timestamp,
-                participants: { [currentUser.uid]: true, [currentRecipientId]: true }
-            });
-        }
-
-        // --- Perfil (sin cambios) ---
-        profileLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            menu.classList.remove('show');
-            showScreen('profile');
-            headerTitle.innerText = 'Mi perfil';
-            document.getElementById('profileName').value = currentUser.displayName || '';
-            document.getElementById('profileEmail').value = currentUser.email || '';
-            document.getElementById('profilePassword').value = '';
-        });
-
-        document.getElementById('backFromProfile').addEventListener('click', () => {
-            showScreen('users');
-            headerTitle.innerText = `MyChat - ${currentUser.displayName || currentUser.email}`;
-        });
-
-        document.getElementById('updateNameBtn').addEventListener('click', async () => {
-            const newName = document.getElementById('profileName').value.trim();
-            if (!newName) return;
-            try {
-                await currentUser.updateProfile({ displayName: newName });
-                await db.ref(`users/${currentUser.uid}/displayName`).set(newName);
-                alert('Nombre actualizado');
-            } catch (e) {
-                document.getElementById('profileError').innerText = e.message;
+                await db.ref(`users/${currentUser.uid}`).set({
+                    userId: currentUser.uid,
+                    displayName: currentUser.displayName || currentUser.email,
+                    email: currentUser.email,
+                    publicKey: publicKeyHex
+                });
             }
-        });
 
-        document.getElementById('updatePasswordBtn').addEventListener('click', async () => {
-            const newPass = document.getElementById('profilePassword').value;
-            if (newPass.length < 6) {
-                document.getElementById('profileError').innerText = 'Mínimo 6 caracteres';
-                return;
+            // --- Auth ---
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    currentUser = user;
+                    loadingOverlay.classList.remove('hidden');
+                    try {
+                        await ensureUserKeys();
+                        showScreen('users');
+                        loadUsersList();
+                        headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
+                    } catch (e) {
+                        console.error(e);
+                        alert('Error al cargar usuario');
+                    } finally {
+                        loadingOverlay.classList.add('hidden');
+                    }
+                } else {
+                    currentUser = null;
+                    privateKeyHex = null;
+                    publicKeyHex = null;
+                    showScreen('login');
+                    headerTitle.innerText = 'MyChat';
+                    if (messagesRef && messagesCallback) {
+                        messagesRef.off('value', messagesCallback);
+                        messagesRef = null;
+                        messagesCallback = null;
+                    }
+                }
+            });
+
+            // Login
+            document.getElementById('loginBtn').addEventListener('click', async () => {
+                const email = document.getElementById('loginEmail').value;
+                const pass = document.getElementById('loginPassword').value;
+                try {
+                    await auth.signInWithEmailAndPassword(email, pass);
+                } catch (e) {
+                    document.getElementById('loginError').innerText = e.message;
+                }
+            });
+
+            // Mostrar registro
+            document.getElementById('registerBtn').addEventListener('click', () => {
+                showScreen('register');
+            });
+            document.getElementById('backToLogin').addEventListener('click', () => {
+                showScreen('login');
+            });
+
+            // Registro con nombre
+            document.getElementById('registerConfirmBtn').addEventListener('click', async () => {
+                const name = document.getElementById('regName').value.trim();
+                const email = document.getElementById('regEmail').value.trim();
+                const pass = document.getElementById('regPassword').value;
+                if (!name || !email || pass.length < 6) {
+                    document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
+                    return;
+                }
+                try {
+                    const cred = await auth.createUserWithEmailAndPassword(email, pass);
+                    const user = cred.user;
+                    await user.updateProfile({ displayName: name });
+                    try { await user.reload(); } catch {}
+                    currentUser = auth.currentUser;
+                } catch (e) {
+                    document.getElementById('registerError').innerText = e.message;
+                }
+            });
+
+            logoutLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                auth.signOut();
+                menu.classList.remove('show');
+            });
+
+            // --- Lista de usuarios ---
+            function loadUsersList() {
+                const usersRef = db.ref('users');
+                usersRef.on('value', (snapshot) => {
+                    const users = [];
+                    snapshot.forEach((child) => {
+                        let user = child.val();
+                        if (!user.userId) user.userId = child.key;
+                        if (user.userId !== currentUser?.uid) users.push(user);
+                    });
+                    renderUsersList(users);
+                });
             }
-            try {
-                await currentUser.updatePassword(newPass);
-                alert('Contraseña actualizada');
+
+            function renderUsersList(users) {
+                const container = document.getElementById('usersList');
+                container.innerHTML = '';
+                if (users.length === 0) {
+                    noUsersMessage.style.display = 'block';
+                } else {
+                    noUsersMessage.style.display = 'none';
+                    users.forEach(user => {
+                        const div = document.createElement('div');
+                        div.className = 'user-item';
+                        div.innerHTML = `
+                            <div class="user-avatar">${(user.displayName?.[0] || '?')}</div>
+                            <div class="user-info">
+                                <h4>${user.displayName || 'Sin nombre'}</h4>
+                                <p>${user.email}</p>
+                            </div>
+                        `;
+                        div.addEventListener('click', () => openChat(user));
+                        container.appendChild(div);
+                    });
+                }
+            }
+
+            // --- Chat ---
+            function openChat(recipient) {
+                currentRecipientId = recipient.userId;
+                currentRecipientName = recipient.displayName || recipient.email;
+                const ids = [currentUser.uid, recipient.userId].sort();
+                currentChatId = ids.join('_');
+                showScreen('chat');
+                headerTitle.innerText = `Chat con ${currentRecipientName}`;
+                loadMessages();
+            }
+
+            function loadMessages() {
+                if (messagesRef && messagesCallback) {
+                    messagesRef.off('value', messagesCallback);
+                }
+
+                messagesRef = db.ref(`messages/${currentChatId}`);
+                messagesCallback = async (snapshot) => {
+                    const messages = [];
+                    snapshot.forEach((child) => {
+                        messages.push(child.val());
+                    });
+                    messages.sort((a, b) => a.timestamp - b.timestamp);
+
+                    let otherPublicKeyHex = null;
+                    if (messages.length > 0) {
+                        const otherUserId = currentUser.uid === messages[0]?.fromUserId ? messages[0]?.toUserId : messages[0]?.fromUserId;
+                        if (otherUserId) {
+                            const snap = await db.ref(`users/${otherUserId}/publicKey`).once('value');
+                            otherPublicKeyHex = snap.val();
+                        }
+                    }
+
+                    const decryptedMessages = await Promise.all(messages.map(async (msg) => {
+                        const isFromSelf = msg.fromUserId === currentUser.uid;
+                        const encryptedText = isFromSelf ? (msg.senderText || msg.text) : msg.text;
+                        const senderPublicKeyHex = isFromSelf ? publicKeyHex : otherPublicKeyHex;
+                        const decrypted = senderPublicKeyHex ? decrypt(encryptedText, senderPublicKeyHex) : encryptedText;
+                        return { ...msg, decryptedText: decrypted };
+                    }));
+                    renderMessages(decryptedMessages);
+                };
+
+                messagesRef.on('value', messagesCallback);
+            }
+
+            function renderMessages(messages) {
+                const container = document.getElementById('messagesArea');
+                container.innerHTML = '';
+                let lastDate = '';
+                const dateFormat = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
+                messages.forEach(msg => {
+                    const date = new Date(msg.timestamp);
+                    const dateStr = dateFormat.format(date);
+                    if (dateStr !== lastDate) {
+                        const header = document.createElement('div');
+                        header.className = 'date-header';
+                        header.innerText = dateStr;
+                        container.appendChild(header);
+                        lastDate = dateStr;
+                    }
+                    const div = document.createElement('div');
+                    div.className = `message ${msg.fromUserId === currentUser.uid ? 'sent' : 'received'}`;
+                    div.innerHTML = `
+                        <div>${msg.decryptedText}</div>
+                        <div class="time">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    `;
+                    container.appendChild(div);
+                });
+                container.scrollTop = container.scrollHeight;
+            }
+
+            document.getElementById('sendBtn').addEventListener('click', sendMessage);
+            document.getElementById('messageInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+
+            async function sendMessage() {
+                const input = document.getElementById('messageInput');
+                const text = input.value.trim();
+                if (!text || !currentChatId || !privateKeyHex) return;
+                input.value = '';
+
+                const recipientSnap = await db.ref(`users/${currentRecipientId}/publicKey`).once('value');
+                const recipientPublicKeyHex = recipientSnap.val();
+
+                const encryptedForRecipient = recipientPublicKeyHex ? encryptFor(text, recipientPublicKeyHex) : text;
+                const encryptedForSelf = publicKeyHex ? encryptFor(text, publicKeyHex) : text;
+
+                const message = {
+                    fromUserId: currentUser.uid,
+                    toUserId: currentRecipientId,
+                    text: encryptedForRecipient,
+                    senderText: encryptedForSelf,
+                    timestamp: Date.now(),
+                    messageId: ''
+                };
+
+                const newMsgRef = db.ref(`messages/${currentChatId}`).push();
+                await newMsgRef.set({ ...message, messageId: newMsgRef.key });
+
+                await db.ref(`chats/${currentChatId}`).update({
+                    lastMessage: 'Mensaje encriptado',
+                    lastTimestamp: message.timestamp,
+                    participants: { [currentUser.uid]: true, [currentRecipientId]: true }
+                });
+            }
+
+            // --- Perfil ---
+            profileLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                menu.classList.remove('show');
+                showScreen('profile');
+                headerTitle.innerText = 'Mi perfil';
+                document.getElementById('profileName').value = currentUser.displayName || '';
+                document.getElementById('profileEmail').value = currentUser.email || '';
                 document.getElementById('profilePassword').value = '';
-            } catch (e) {
-                document.getElementById('profileError').innerText = e.message;
-            }
-        });
+            });
 
-        // --- UI ---
-        function showScreen(screenName) {
-            loginScreen.classList.remove('active');
-            registerScreen.classList.remove('active');
-            usersScreen.classList.remove('active');
-            chatScreen.classList.remove('active');
-            profileScreen.classList.remove('active');
-            if (screenName === 'login') loginScreen.classList.add('active');
-            if (screenName === 'register') registerScreen.classList.add('active');
-            if (screenName === 'users') usersScreen.classList.add('active');
-            if (screenName === 'chat') chatScreen.classList.add('active');
-            if (screenName === 'profile') profileScreen.classList.add('active');
-            menu.classList.remove('show');
-        }
+            document.getElementById('backFromProfile').addEventListener('click', () => {
+                showScreen('users');
+                headerTitle.innerText = `MyChat - ${currentUser.displayName || currentUser.email}`;
+            });
 
-        menuToggle.addEventListener('click', () => {
-            menu.classList.toggle('show');
-        });
+            document.getElementById('updateNameBtn').addEventListener('click', async () => {
+                const newName = document.getElementById('profileName').value.trim();
+                if (!newName) return;
+                try {
+                    await currentUser.updateProfile({ displayName: newName });
+                    await db.ref(`users/${currentUser.uid}/displayName`).set(newName);
+                    alert('Nombre actualizado');
+                } catch (e) {
+                    document.getElementById('profileError').innerText = e.message;
+                }
+            });
 
-        window.addEventListener('click', (e) => {
-            if (!menu.contains(e.target) && e.target !== menuToggle) {
+            document.getElementById('updatePasswordBtn').addEventListener('click', async () => {
+                const newPass = document.getElementById('profilePassword').value;
+                if (newPass.length < 6) {
+                    document.getElementById('profileError').innerText = 'Mínimo 6 caracteres';
+                    return;
+                }
+                try {
+                    await currentUser.updatePassword(newPass);
+                    alert('Contraseña actualizada');
+                    document.getElementById('profilePassword').value = '';
+                } catch (e) {
+                    document.getElementById('profileError').innerText = e.message;
+                }
+            });
+
+            // --- UI ---
+            function showScreen(screenName) {
+                loginScreen.classList.remove('active');
+                registerScreen.classList.remove('active');
+                usersScreen.classList.remove('active');
+                chatScreen.classList.remove('active');
+                profileScreen.classList.remove('active');
+                if (screenName === 'login') loginScreen.classList.add('active');
+                if (screenName === 'register') registerScreen.classList.add('active');
+                if (screenName === 'users') usersScreen.classList.add('active');
+                if (screenName === 'chat') chatScreen.classList.add('active');
+                if (screenName === 'profile') profileScreen.classList.add('active');
                 menu.classList.remove('show');
             }
-        });
+
+            menuToggle.addEventListener('click', () => {
+                menu.classList.toggle('show');
+            });
+
+            window.addEventListener('click', (e) => {
+                if (!menu.contains(e.target) && e.target !== menuToggle) {
+                    menu.classList.remove('show');
+                }
+            });
+
+            // Ocultar overlay de carga inicial
+            loadingOverlay.classList.add('hidden');
+        } // fin startApp
     })();
 </script>
 </body>
