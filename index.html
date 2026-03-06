@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyChat Web (sin cifrado - corregido)</title>
+    <style>
+        /* (Mismos estilos, se omiten por brevedad, pero deben estar presentes) */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+        body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
+        header { background: #075e54; color: white; padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+        header h2 { font-size: 1.2rem; font-weight: 500; }
+        .menu-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; }
+        .menu-content { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); position: absolute; top: 60px; right: 16px; z-index: 10; display: none; }
+        .menu-content.show { display: block; }
+        .menu-content a { display: block; padding: 12px 16px; text-decoration: none; color: #333; border-bottom: 1px solid #ddd; cursor: pointer; }
+        .menu-content a:last-child { border-bottom: none; }
+        .screen { height: 100%; overflow-y: auto; padding: 16px; display: none; flex-direction: column; }
+        .screen.active { display: flex; }
+        .input-group { margin-bottom: 12px; }
+        input, textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 24px; font-size: 1rem; outline: none; }
+        button { background: #075e54; color: white; border: none; padding: 12px 24px; border-radius: 24px; font-size: 1rem; cursor: pointer; }
+        button.secondary { background: #fff; color: #075e54; border: 1px solid #075e54; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .user-item { padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; align-items: center; }
+        .user-item:hover { background: #f5f5f5; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: #128C7E; color: white; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-weight: bold; text-transform: uppercase; }
+        .user-info h4 { font-size: 1rem; margin-bottom: 4px; }
+        .user-info p { font-size: 0.8rem; color: #666; }
+        #messagesArea { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; }
+        .message { max-width: 70%; margin-bottom: 8px; padding: 8px 12px; border-radius: 20px; position: relative; word-wrap: break-word; }
+        .message.sent { align-self: flex-end; background: #dcf8c6; }
+        .message.received { align-self: flex-start; background: white; border: 1px solid #e0e0e0; }
+        .message .time { font-size: 0.7rem; color: #888; margin-top: 4px; text-align: right; }
+        .date-header { text-align: center; font-size: 0.8rem; color: #666; margin: 16px 0 8px; font-weight: 500; }
+        #chatFooter { display: flex; padding: 8px; background: #f0f0f0; border-top: 1px solid #ddd; }
+        #messageInput { flex: 1; margin-right: 8px; border-radius: 24px; padding: 10px 16px; border: 1px solid #ccc; }
+        #sendBtn { border-radius: 50%; width: 48px; height: 48px; padding: 0; font-size: 1.2rem; }
+        .error { color: #d32f2f; font-size: 0.9rem; margin: 8px 0; text-align: center; }
+        .info { color: #075e54; font-size: 0.9rem; margin: 8px 0; text-align: center; }
+        #loadingOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+        #loadingOverlay.hidden { display: none; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #075e54; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 16px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .warning { color: #ff9800; font-weight: bold; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
+</head>
+<body>
+<div id="app">
+    <div id="loadingOverlay" class="hidden">
+        <div class="spinner"></div>
+        <div>Cargando MyChat...</div>
+    </div>
+
+    <header>
+        <h2 id="headerTitle">MyChat</h2>
+        <button class="menu-btn" id="menuToggle">☰</button>
+        <div id="menu" class="menu-content">
+            <a id="profileLink">Perfil</a>
+            <a id="logoutLink">Cerrar sesión</a>
+        </div>
+    </header>
+
+    <!-- Login screen -->
+    <div id="loginScreen" class="screen active">
+        <div style="margin-top: 40px; text-align: center;">
+            <h3>Bienvenido a MyChat</h3>
+            <p>Inicia sesión o regístrate</p>
+        </div>
+        <div class="input-group"><input type="email" id="loginEmail" placeholder="Email" /></div>
+        <div class="input-group"><input type="password" id="loginPassword" placeholder="Contraseña" /></div>
+        <button id="loginBtn">Iniciar sesión</button>
+        <button class="secondary" id="registerBtn" style="margin-top: 8px;">Registrarse</button>
+        <div id="loginError" class="error"></div>
+    </div>
+
+    <!-- Register screen -->
+    <div id="registerScreen" class="screen">
+        <h3>Crear cuenta</h3>
+        <div class="input-group"><input type="text" id="regName" placeholder="Nombre completo" /></div>
+        <div class="input-group"><input type="email" id="regEmail" placeholder="Email" /></div>
+        <div class="input-group"><input type="password" id="regPassword" placeholder="Contraseña (mín. 6)" /></div>
+        <button id="registerConfirmBtn">Registrarse</button>
+        <button class="secondary" id="backToLogin">Volver</button>
+        <div id="registerError" class="error"></div>
+    </div>
+
+    <!-- Users list screen -->
+    <div id="usersScreen" class="screen">
+        <div id="usersList" style="flex:1;"></div>
+        <div id="noUsersMessage" class="info" style="display: none;">No hay otros usuarios registrados</div>
+    </div>
+
+    <!-- Chat screen -->
+    <div id="chatScreen" class="screen">
+        <div id="messagesArea"></div>
+        <div id="chatFooter">
+            <input type="text" id="messageInput" placeholder="Mensaje..." />
+            <button id="sendBtn">➤</button>
+        </div>
+    </div>
+
+    <!-- Profile screen -->
+    <div id="profileScreen" class="screen">
+        <h3>Mi perfil</h3>
+        <div class="input-group"><input type="text" id="profileName" placeholder="Nombre" /></div>
+        <div class="input-group"><input type="email" id="profileEmail" placeholder="Email" disabled /></div>
+        <div class="input-group"><input type="password" id="profilePassword" placeholder="Nueva contraseña (mín. 6)" /></div>
+        <button id="updateNameBtn">Actualizar nombre</button>
+        <button id="updatePasswordBtn" style="margin-top: 8px;">Actualizar contraseña</button>
+        <div id="profileError" class="error"></div>
+        <button class="secondary" id="backFromProfile" style="margin-top: 16px;">Volver</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // Inicializar Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
+            authDomain: "mychat-4fbf2.firebaseapp.com",
+            databaseURL: "https://mychat-4fbf2-default-rtdb.europe-west1.firebasedatabase.app/",
+            projectId: "mychat-4fbf2",
+            storageBucket: "mychat-4fbf2.firebasestorage.app",
+            messagingSenderId: "833008491572",
+            appId: "1:833008491572:android:fae5308a38dbecb1b47e61"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const auth = firebase.auth();
+
+        // Variables globales
+        let currentUser = null;
+        let currentChatId = null;
+        let currentRecipientId = null;
+        let currentRecipientName = null;
+        let messagesRef = null;
+        let messagesCallback = null;
+
+        // Elementos DOM
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loginScreen = document.getElementById('loginScreen');
+        const registerScreen = document.getElementById('registerScreen');
+        const usersScreen = document.getElementById('usersScreen');
+        const chatScreen = document.getElementById('chatScreen');
+        const profileScreen = document.getElementById('profileScreen');
+        const headerTitle = document.getElementById('headerTitle');
+        const menuToggle = document.getElementById('menuToggle');
+        const menu = document.getElementById('menu');
+        const profileLink = document.getElementById('profileLink');
+        const logoutLink = document.getElementById('logoutLink');
+        const noUsersMessage = document.getElementById('noUsersMessage');
+
+        // --- Gestión de usuario (sin claves) ---
+        async function ensureUserInDatabase() {
+            if (!currentUser) return;
+            // Usamos update para no sobrescribir otros campos si los hubiera
+            await db.ref(`users/${currentUser.uid}`).update({
+                userId: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email,
+                email: currentUser.email
+            });
+            console.log('Usuario actualizado en DB:', currentUser.uid);
+        }
+
+        // --- Auth ---
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                loadingOverlay.classList.remove('hidden');
+                try {
+                    await ensureUserInDatabase();
+                    showScreen('users');
+                    loadUsersList();
+                    headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
+                } catch (e) {
+                    console.error('Error en auth state:', e);
+                    alert('Error al cargar usuario');
+                } finally {
+                    loadingOverlay.classList.add('hidden');
+                }
+            } else {
+                currentUser = null;
+                showScreen('login');
+                headerTitle.innerText = 'MyChat';
+                if (messagesRef && messagesCallback) {
+                    messagesRef.off('value', messagesCallback);
+                    messagesRef = null;
+                    messagesCallback = null;
+                }
+            }
+        });
+
+        // Login
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            const email = document.getElementById('loginEmail').value;
+            const pass = document.getElementById('loginPassword').value;
+            try {
+                await auth.signInWithEmailAndPassword(email, pass);
+            } catch (e) {
+                document.getElementById('loginError').innerText = e.message;
+            }
+        });
+
+        // Mostrar registro
+        document.getElementById('registerBtn').addEventListener('click', () => {
+            showScreen('register');
+        });
+        document.getElementById('backToLogin').addEventListener('click', () => {
+            showScreen('login');
+        });
+
+        // Registro con nombre
+        document.getElementById('registerConfirmBtn').addEventListener('click', async () => {
+            const name = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const pass = document.getElementById('regPassword').value;
+            if (!name || !email || pass.length < 6) {
+                document.getElementById('registerError').innerText = 'Completa todos los campos y contraseña mínimo 6 caracteres';
+                return;
+            }
+            try {
+                const cred = await auth.createUserWithEmailAndPassword(email, pass);
+                const user = cred.user;
+                await user.updateProfile({ displayName: name });
+                // Forzar recarga para obtener displayName actualizado
+                await user.reload();
+                currentUser = auth.currentUser;
+                // ensureUserInDatabase se llamará en onAuthStateChanged
+            } catch (e) {
+                document.getElementById('registerError').innerText = e.message;
+            }
+        });
+
+        logoutLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            auth.signOut();
+            menu.classList.remove('show');
+        });
+
+        // --- Lista de usuarios ---
+        function loadUsersList() {
+            const usersRef = db.ref('users');
+            usersRef.on('value', (snapshot) => {
+                const users = [];
+                snapshot.forEach((child) => {
+                    let user = child.val();
+                    if (!user.userId) user.userId = child.key;
+                    if (user.userId !== currentUser?.uid) users.push(user);
+                });
+                renderUsersList(users);
+            });
+        }
+
+        function renderUsersList(users) {
+            const container = document.getElementById('usersList');
+            container.innerHTML = '';
+            if (users.length === 0) {
+                noUsersMessage.style.display = 'block';
+            } else {
+                noUsersMessage.style.display = 'none';
+                users.forEach(user => {
+                    const div = document.createElement('div');
+                    div.className = 'user-item';
+                    div.innerHTML = `
+                        <div class="user-avatar">${(user.displayName?.[0] || '?')}</div>
+                        <div class="user-info">
+                            <h4>${user.displayName || 'Sin nombre'}</h4>
+                            <p>${user.email}</p>
+                        </div>
+                    `;
+                    div.addEventListener('click', () => openChat(user));
+                    container.appendChild(div);
+                });
+            }
+        }
+
+        // --- Chat ---
+        function openChat(recipient) {
+            if (!currentUser) return;
+            currentRecipientId = recipient.userId;
+            currentRecipientName = recipient.displayName || recipient.email;
+            const ids = [currentUser.uid, recipient.userId].sort();
+            currentChatId = ids.join('_');
+            console.log('Abriendo chat:', currentChatId);
+            showScreen('chat');
+            headerTitle.innerText = `Chat con ${currentRecipientName}`;
+            loadMessages();
+        }
+
+        function loadMessages() {
+            if (!currentChatId) return;
+            if (messagesRef && messagesCallback) {
+                messagesRef.off('value', messagesCallback);
+            }
+
+            messagesRef = db.ref(`messages/${currentChatId}`);
+            messagesCallback = (snapshot) => {
+                const messages = [];
+                snapshot.forEach((child) => {
+                    const msg = child.val();
+                    // Aseguramos que tenga el campo text (por si hay mensajes antiguos con otra estructura)
+                    if (msg && msg.text !== undefined) {
+                        messages.push(msg);
+                    } else if (msg && msg.senderText) {
+                        // Compatibilidad con mensajes antiguos que tenían senderText
+                        messages.push({ ...msg, text: msg.senderText });
+                    }
+                });
+                messages.sort((a, b) => a.timestamp - b.timestamp);
+                console.log('Mensajes cargados:', messages.length);
+                renderMessages(messages);
+            };
+
+            messagesRef.on('value', messagesCallback);
+        }
+
+        function renderMessages(messages) {
+            const container = document.getElementById('messagesArea');
+            container.innerHTML = '';
+            let lastDate = '';
+            const dateFormat = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
+            messages.forEach(msg => {
+                const date = new Date(msg.timestamp);
+                const dateStr = dateFormat.format(date);
+                if (dateStr !== lastDate) {
+                    const header = document.createElement('div');
+                    header.className = 'date-header';
+                    header.innerText = dateStr;
+                    container.appendChild(header);
+                    lastDate = dateStr;
+                }
+                const div = document.createElement('div');
+                div.className = `message ${msg.fromUserId === currentUser?.uid ? 'sent' : 'received'}`;
+                div.innerHTML = `
+                    <div>${msg.text}</div>
+                    <div class="time">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                `;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        document.getElementById('sendBtn').addEventListener('click', sendMessage);
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        async function sendMessage() {
+            if (!currentUser) {
+                console.error('No hay usuario autenticado');
+                return;
+            }
+            if (!currentChatId || !currentRecipientId) {
+                console.error('No hay chat abierto');
+                return;
+            }
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+
+            const message = {
+                fromUserId: currentUser.uid,
+                toUserId: currentRecipientId,
+                text: text,           // Solo texto plano
+                timestamp: Date.now(),
+                messageId: ''          // Se asignará con push
+            };
+
+            console.log('Enviando mensaje:', message);
+
+            const newMsgRef = db.ref(`messages/${currentChatId}`).push();
+            await newMsgRef.set({ ...message, messageId: newMsgRef.key });
+
+            // Actualizar último mensaje en chats
+            await db.ref(`chats/${currentChatId}`).update({
+                lastMessage: text,
+                lastTimestamp: message.timestamp,
+                participants: { [currentUser.uid]: true, [currentRecipientId]: true }
+            });
+        }
+
+        // --- Perfil ---
+        profileLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            menu.classList.remove('show');
+            showScreen('profile');
+            headerTitle.innerText = 'Mi perfil';
+            document.getElementById('profileName').value = currentUser?.displayName || '';
+            document.getElementById('profileEmail').value = currentUser?.email || '';
+            document.getElementById('profilePassword').value = '';
+        });
+
+        document.getElementById('backFromProfile').addEventListener('click', () => {
+            showScreen('users');
+            headerTitle.innerText = `MyChat - ${currentUser?.displayName || currentUser?.email || ''}`;
+        });
+
+        document.getElementById('updateNameBtn').addEventListener('click', async () => {
+            const newName = document.getElementById('profileName').value.trim();
+            if (!newName || !currentUser) return;
+            try {
+                await currentUser.updateProfile({ displayName: newName });
+                await db.ref(`users/${currentUser.uid}/displayName`).set(newName);
+                alert('Nombre actualizado');
+            } catch (e) {
+                document.getElementById('profileError').innerText = e.message;
+            }
+        });
+
+        document.getElementById('updatePasswordBtn').addEventListener('click', async () => {
+            const newPass = document.getElementById('profilePassword').value;
+            if (newPass.length < 6) {
+                document.getElementById('profileError').innerText = 'Mínimo 6 caracteres';
+                return;
+            }
+            try {
+                await currentUser.updatePassword(newPass);
+                alert('Contraseña actualizada');
+                document.getElementById('profilePassword').value = '';
+            } catch (e) {
+                document.getElementById('profileError').innerText = e.message;
+            }
+        });
+
+        // --- UI ---
+        function showScreen(screenName) {
+            loginScreen.classList.remove('active');
+            registerScreen.classList.remove('active');
+            usersScreen.classList.remove('active');
+            chatScreen.classList.remove('active');
+            profileScreen.classList.remove('active');
+            if (screenName === 'login') loginScreen.classList.add('active');
+            if (screenName === 'register') registerScreen.classList.add('active');
+            if (screenName === 'users') usersScreen.classList.add('active');
+            if (screenName === 'chat') chatScreen.classList.add('active');
+            if (screenName === 'profile') profileScreen.classList.add('active');
+            menu.classList.remove('show');
+        }
+
+        menuToggle.addEventListener('click', () => {
+            menu.classList.toggle('show');
+        });
+
+        window.addEventListener('click', (e) => {
+            if (!menu.contains(e.target) && e.target !== menuToggle) {
+                menu.classList.remove('show');
+            }
+        });
+
+        // Ocultar overlay de carga inicial
+        loadingOverlay.classList.add('hidden');
+    })();
+</script>
+</body>
+</html>
