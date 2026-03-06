@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (con nombres y sonido)</title>
+    <title>MyChat Web (sin cifrado - corregido)</title>
     <style>
+        /* (Mismos estilos, se omiten por brevedad, pero deben estar presentes) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
         header { background: #075e54; color: white; padding: 16px; display: flex; align-items: center; justify-content: space-between; }
         header h2 { font-size: 1.2rem; font-weight: 500; }
-        .header-buttons { display: flex; align-items: center; gap: 8px; }
-        .menu-btn, .sound-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; }
-        .sound-btn { font-size: 1.4rem; }
+        .menu-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; }
         .menu-content { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); position: absolute; top: 60px; right: 16px; z-index: 10; display: none; }
         .menu-content.show { display: block; }
         .menu-content a { display: block; padding: 12px 16px; text-decoration: none; color: #333; border-bottom: 1px solid #ddd; cursor: pointer; }
@@ -33,7 +32,6 @@
         .message { max-width: 70%; margin-bottom: 8px; padding: 8px 12px; border-radius: 20px; position: relative; word-wrap: break-word; }
         .message.sent { align-self: flex-end; background: #dcf8c6; }
         .message.received { align-self: flex-start; background: white; border: 1px solid #e0e0e0; }
-        .message-sender { font-size: 0.7rem; color: #888; margin-bottom: 2px; font-weight: 500; }
         .message .time { font-size: 0.7rem; color: #888; margin-top: 4px; text-align: right; }
         .date-header { text-align: center; font-size: 0.8rem; color: #666; margin: 16px 0 8px; font-weight: 500; }
         #chatFooter { display: flex; padding: 8px; background: #f0f0f0; border-top: 1px solid #ddd; }
@@ -58,10 +56,7 @@
 
     <header>
         <h2 id="headerTitle">MyChat</h2>
-        <div class="header-buttons">
-            <button class="sound-btn" id="soundToggle" title="Activar/desactivar sonido">🔊</button>
-            <button class="menu-btn" id="menuToggle">☰</button>
-        </div>
+        <button class="menu-btn" id="menuToggle">☰</button>
         <div id="menu" class="menu-content">
             <a id="profileLink">Perfil</a>
             <a id="logoutLink">Cerrar sesión</a>
@@ -143,9 +138,6 @@
         let currentRecipientName = null;
         let messagesRef = null;
         let messagesCallback = null;
-        let childAddedListener = null; // Para el listener de sonido
-        let processedMessageKeys = new Set(); // Para evitar sonidos en mensajes existentes
-        let soundEnabled = true; // Estado del sonido
 
         // Elementos DOM
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -160,61 +152,11 @@
         const profileLink = document.getElementById('profileLink');
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
-        const soundToggle = document.getElementById('soundToggle');
 
-        // --- Función para generar un beep con Web Audio API ---
-        function playBeep() {
-            if (!soundEnabled) return;
-
-            try {
-                // Crear un contexto de audio (si no existe o fue cerrado)
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                const audioCtx = new AudioContext();
-
-                // Reanudar si está suspendido (requiere interacción del usuario)
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume().then(() => {
-                        createBeep(audioCtx);
-                    });
-                } else {
-                    createBeep(audioCtx);
-                }
-            } catch (e) {
-                console.warn('Web Audio API no soportada:', e);
-            }
-        }
-
-        function createBeep(audioCtx) {
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); // Frecuencia del beep
-
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); // Volumen bajo
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); // Desvanecer
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.1); // Duración 100ms
-
-            // Cerrar el contexto después de un tiempo para liberar recursos
-            setTimeout(() => {
-                audioCtx.close();
-            }, 200);
-        }
-
-        // --- Toggle de sonido ---
-        soundToggle.addEventListener('click', () => {
-            soundEnabled = !soundEnabled;
-            soundToggle.textContent = soundEnabled ? '🔊' : '🔈';
-        });
-
-        // --- Gestión de usuario ---
+        // --- Gestión de usuario (sin claves) ---
         async function ensureUserInDatabase() {
             if (!currentUser) return;
+            // Usamos update para no sobrescribir otros campos si los hubiera
             await db.ref(`users/${currentUser.uid}`).update({
                 userId: currentUser.uid,
                 displayName: currentUser.displayName || currentUser.email,
@@ -243,15 +185,11 @@
                 currentUser = null;
                 showScreen('login');
                 headerTitle.innerText = 'MyChat';
-                // Limpiar listeners de mensajes
-                if (messagesRef) {
-                    if (messagesCallback) messagesRef.off('value', messagesCallback);
-                    if (childAddedListener) messagesRef.off('child_added', childAddedListener);
+                if (messagesRef && messagesCallback) {
+                    messagesRef.off('value', messagesCallback);
                     messagesRef = null;
                     messagesCallback = null;
-                    childAddedListener = null;
                 }
-                processedMessageKeys.clear();
             }
         });
 
@@ -287,8 +225,10 @@
                 const cred = await auth.createUserWithEmailAndPassword(email, pass);
                 const user = cred.user;
                 await user.updateProfile({ displayName: name });
+                // Forzar recarga para obtener displayName actualizado
                 await user.reload();
                 currentUser = auth.currentUser;
+                // ensureUserInDatabase se llamará en onAuthStateChanged
             } catch (e) {
                 document.getElementById('registerError').innerText = e.message;
             }
@@ -352,50 +292,20 @@
 
         function loadMessages() {
             if (!currentChatId) return;
-
-            // Limpiar listeners anteriores
-            if (messagesRef) {
-                if (messagesCallback) messagesRef.off('value', messagesCallback);
-                if (childAddedListener) messagesRef.off('child_added', childAddedListener);
+            if (messagesRef && messagesCallback) {
+                messagesRef.off('value', messagesCallback);
             }
 
             messagesRef = db.ref(`messages/${currentChatId}`);
-            processedMessageKeys.clear(); // Reiniciar el conjunto de mensajes procesados
-
-            // 1. Cargar mensajes existentes una sola vez para conocer sus keys
-            messagesRef.once('value', (snapshot) => {
-                snapshot.forEach((child) => {
-                    processedMessageKeys.add(child.key);
-                });
-            });
-
-            // 2. Listener para nuevos mensajes (child_added)
-            childAddedListener = messagesRef.on('child_added', (snapshot) => {
-                const msg = snapshot.val();
-                const msgKey = snapshot.key;
-
-                // Si es un mensaje que ya teníamos (por el once), ignorar para el sonido
-                if (processedMessageKeys.has(msgKey)) {
-                    return;
-                }
-
-                // Marcar como procesado para futuros eventos
-                processedMessageKeys.add(msgKey);
-
-                // Reproducir sonido si está activado y el mensaje es de otro usuario
-                if (soundEnabled && msg.fromUserId !== currentUser?.uid) {
-                    playBeep();
-                }
-            });
-
-            // 3. Listener de valor para renderizar la lista completa (incluye todos los mensajes)
             messagesCallback = (snapshot) => {
                 const messages = [];
                 snapshot.forEach((child) => {
                     const msg = child.val();
+                    // Aseguramos que tenga el campo text (por si hay mensajes antiguos con otra estructura)
                     if (msg && msg.text !== undefined) {
                         messages.push(msg);
                     } else if (msg && msg.senderText) {
+                        // Compatibilidad con mensajes antiguos que tenían senderText
                         messages.push({ ...msg, text: msg.senderText });
                     }
                 });
@@ -403,6 +313,7 @@
                 console.log('Mensajes cargados:', messages.length);
                 renderMessages(messages);
             };
+
             messagesRef.on('value', messagesCallback);
         }
 
@@ -411,7 +322,6 @@
             container.innerHTML = '';
             let lastDate = '';
             const dateFormat = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
-
             messages.forEach(msg => {
                 const date = new Date(msg.timestamp);
                 const dateStr = dateFormat.format(date);
@@ -422,40 +332,14 @@
                     container.appendChild(header);
                     lastDate = dateStr;
                 }
-
                 const div = document.createElement('div');
                 div.className = `message ${msg.fromUserId === currentUser?.uid ? 'sent' : 'received'}`;
-
-                // Determinar el nombre a mostrar
-                let senderNameDisplay = '';
-                if (msg.fromUserId === currentUser?.uid) {
-                    senderNameDisplay = 'Tú';
-                } else {
-                    senderNameDisplay = msg.senderName || 'Usuario'; // Usar senderName si existe, si no, genérico
-                }
-
-                // Crear el elemento del nombre
-                const nameDiv = document.createElement('div');
-                nameDiv.className = 'message-sender';
-                nameDiv.innerText = senderNameDisplay;
-
-                // Crear el contenido del mensaje
-                const textDiv = document.createElement('div');
-                textDiv.innerText = msg.text;
-
-                // Crear la hora
-                const timeDiv = document.createElement('div');
-                timeDiv.className = 'time';
-                timeDiv.innerText = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                // Ensamblar
-                div.appendChild(nameDiv);
-                div.appendChild(textDiv);
-                div.appendChild(timeDiv);
-
+                div.innerHTML = `
+                    <div>${msg.text}</div>
+                    <div class="time">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                `;
                 container.appendChild(div);
             });
-
             container.scrollTop = container.scrollHeight;
         }
 
@@ -481,10 +365,9 @@
             const message = {
                 fromUserId: currentUser.uid,
                 toUserId: currentRecipientId,
-                text: text,
-                senderName: currentUser.displayName || currentUser.email, // Guardamos el nombre
+                text: text,           // Solo texto plano
                 timestamp: Date.now(),
-                messageId: ''
+                messageId: ''          // Se asignará con push
             };
 
             console.log('Enviando mensaje:', message);
