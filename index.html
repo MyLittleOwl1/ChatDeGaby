@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (sin cifrado)</title>
+    <title>MyChat Web (sin cifrado - corregido)</title>
     <style>
-        /* Mismos estilos, sin cambios */
+        /* (Mismos estilos, se omiten por brevedad, pero deben estar presentes) */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
@@ -45,7 +45,6 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .warning { color: #ff9800; font-weight: bold; }
     </style>
-    <!-- Solo Firebase, sin librerías criptográficas -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-compat.js"></script>
 </head>
 <body>
@@ -55,7 +54,6 @@
         <div>Cargando MyChat...</div>
     </div>
 
-    <!-- Estructura de pantallas -->
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <button class="menu-btn" id="menuToggle">☰</button>
@@ -119,9 +117,6 @@
 
 <script>
     (function() {
-        // Elementos DOM básicos
-        const loadingOverlay = document.getElementById('loadingOverlay');
-
         // Inicializar Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBifPq7xA2CNpDdVwsqjZ-sw6dsNbvRXLk",
@@ -145,6 +140,7 @@
         let messagesCallback = null;
 
         // Elementos DOM
+        const loadingOverlay = document.getElementById('loadingOverlay');
         const loginScreen = document.getElementById('loginScreen');
         const registerScreen = document.getElementById('registerScreen');
         const usersScreen = document.getElementById('usersScreen');
@@ -157,18 +153,16 @@
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
 
-        // --- Gestión de usuario (sin claves criptográficas) ---
+        // --- Gestión de usuario (sin claves) ---
         async function ensureUserInDatabase() {
             if (!currentUser) return;
-
-            // Simplemente aseguramos que el usuario existe en la base de datos
-            // Sin campo publicKey
-            await db.ref(`users/${currentUser.uid}`).set({
+            // Usamos update para no sobrescribir otros campos si los hubiera
+            await db.ref(`users/${currentUser.uid}`).update({
                 userId: currentUser.uid,
                 displayName: currentUser.displayName || currentUser.email,
                 email: currentUser.email
-                // NOTA: se ha eliminado publicKey
             });
+            console.log('Usuario actualizado en DB:', currentUser.uid);
         }
 
         // --- Auth ---
@@ -182,7 +176,7 @@
                     loadUsersList();
                     headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
                 } catch (e) {
-                    console.error(e);
+                    console.error('Error en auth state:', e);
                     alert('Error al cargar usuario');
                 } finally {
                     loadingOverlay.classList.add('hidden');
@@ -231,8 +225,8 @@
                 const cred = await auth.createUserWithEmailAndPassword(email, pass);
                 const user = cred.user;
                 await user.updateProfile({ displayName: name });
-                // Forzar recarga para obtener displayName
-                try { await user.reload(); } catch {}
+                // Forzar recarga para obtener displayName actualizado
+                await user.reload();
                 currentUser = auth.currentUser;
                 // ensureUserInDatabase se llamará en onAuthStateChanged
             } catch (e) {
@@ -283,40 +277,41 @@
             }
         }
 
-        // --- Chat (sin cifrado) ---
+        // --- Chat ---
         function openChat(recipient) {
+            if (!currentUser) return;
             currentRecipientId = recipient.userId;
             currentRecipientName = recipient.displayName || recipient.email;
             const ids = [currentUser.uid, recipient.userId].sort();
             currentChatId = ids.join('_');
+            console.log('Abriendo chat:', currentChatId);
             showScreen('chat');
             headerTitle.innerText = `Chat con ${currentRecipientName}`;
             loadMessages();
         }
 
         function loadMessages() {
+            if (!currentChatId) return;
             if (messagesRef && messagesCallback) {
                 messagesRef.off('value', messagesCallback);
             }
 
             messagesRef = db.ref(`messages/${currentChatId}`);
-            messagesCallback = async (snapshot) => {
+            messagesCallback = (snapshot) => {
                 const messages = [];
                 snapshot.forEach((child) => {
-                    messages.push(child.val());
+                    const msg = child.val();
+                    // Aseguramos que tenga el campo text (por si hay mensajes antiguos con otra estructura)
+                    if (msg && msg.text !== undefined) {
+                        messages.push(msg);
+                    } else if (msg && msg.senderText) {
+                        // Compatibilidad con mensajes antiguos que tenían senderText
+                        messages.push({ ...msg, text: msg.senderText });
+                    }
                 });
                 messages.sort((a, b) => a.timestamp - b.timestamp);
-
-                // Ya no hay descifrado, usamos el texto directamente
-                const plainMessages = messages.map(msg => ({
-                    ...msg,
-                    // Para mensajes propios, usamos senderText si existe, si no text
-                    // (por compatibilidad con mensajes antiguos que puedan tener cifrado)
-                    displayText: (msg.fromUserId === currentUser.uid) 
-                        ? (msg.senderText || msg.text) 
-                        : msg.text
-                }));
-                renderMessages(plainMessages);
+                console.log('Mensajes cargados:', messages.length);
+                renderMessages(messages);
             };
 
             messagesRef.on('value', messagesCallback);
@@ -338,9 +333,9 @@
                     lastDate = dateStr;
                 }
                 const div = document.createElement('div');
-                div.className = `message ${msg.fromUserId === currentUser.uid ? 'sent' : 'received'}`;
+                div.className = `message ${msg.fromUserId === currentUser?.uid ? 'sent' : 'received'}`;
                 div.innerHTML = `
-                    <div>${msg.displayText}</div>
+                    <div>${msg.text}</div>
                     <div class="time">${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 `;
                 container.appendChild(div);
@@ -354,25 +349,33 @@
         });
 
         async function sendMessage() {
+            if (!currentUser) {
+                console.error('No hay usuario autenticado');
+                return;
+            }
+            if (!currentChatId || !currentRecipientId) {
+                console.error('No hay chat abierto');
+                return;
+            }
             const input = document.getElementById('messageInput');
             const text = input.value.trim();
-            if (!text || !currentChatId) return;
+            if (!text) return;
             input.value = '';
 
-            // Enviamos el mismo texto en ambos campos (sin cifrar)
-            // Esto mantiene compatibilidad con la estructura de datos anterior
             const message = {
                 fromUserId: currentUser.uid,
                 toUserId: currentRecipientId,
-                text: text,           // Para el receptor
-                senderText: text,      // Para el propio emisor
+                text: text,           // Solo texto plano
                 timestamp: Date.now(),
-                messageId: ''
+                messageId: ''          // Se asignará con push
             };
+
+            console.log('Enviando mensaje:', message);
 
             const newMsgRef = db.ref(`messages/${currentChatId}`).push();
             await newMsgRef.set({ ...message, messageId: newMsgRef.key });
 
+            // Actualizar último mensaje en chats
             await db.ref(`chats/${currentChatId}`).update({
                 lastMessage: text,
                 lastTimestamp: message.timestamp,
@@ -380,25 +383,25 @@
             });
         }
 
-        // --- Perfil (sin cambios) ---
+        // --- Perfil ---
         profileLink.addEventListener('click', (e) => {
             e.preventDefault();
             menu.classList.remove('show');
             showScreen('profile');
             headerTitle.innerText = 'Mi perfil';
-            document.getElementById('profileName').value = currentUser.displayName || '';
-            document.getElementById('profileEmail').value = currentUser.email || '';
+            document.getElementById('profileName').value = currentUser?.displayName || '';
+            document.getElementById('profileEmail').value = currentUser?.email || '';
             document.getElementById('profilePassword').value = '';
         });
 
         document.getElementById('backFromProfile').addEventListener('click', () => {
             showScreen('users');
-            headerTitle.innerText = `MyChat - ${currentUser.displayName || currentUser.email}`;
+            headerTitle.innerText = `MyChat - ${currentUser?.displayName || currentUser?.email || ''}`;
         });
 
         document.getElementById('updateNameBtn').addEventListener('click', async () => {
             const newName = document.getElementById('profileName').value.trim();
-            if (!newName) return;
+            if (!newName || !currentUser) return;
             try {
                 await currentUser.updateProfile({ displayName: newName });
                 await db.ref(`users/${currentUser.uid}/displayName`).set(newName);
@@ -448,7 +451,7 @@
             }
         });
 
-        // Ocultar overlay de carga inicial (si está visible)
+        // Ocultar overlay de carga inicial
         loadingOverlay.classList.add('hidden');
     })();
 </script>
