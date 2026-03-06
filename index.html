@@ -3,47 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (con nombres reales y sonido)</title>
+    <title>MyChat Web (con temas)</title>
     <style>
+        /* Variables CSS para temas claro/oscuro */
+        :root {
+            --bg-primary: #f0f2f5;
+            --bg-surface: #ffffff;
+            --bg-header: #075e54;
+            --text-primary: #111b21;
+            --text-secondary: #667781;
+            --border-color: #e9edef;
+            --message-sent: #dcf8c6;
+            --message-received: #ffffff;
+            --shadow: 0 10px 30px rgba(0,0,0,0.2);
+            --hover-bg: #f5f5f5;
+            --input-bg: #ffffff;
+            --input-border: #ddd;
+            --menu-bg: #ffffff;
+            --menu-text: #333;
+            --menu-border: #ddd;
+            --avatar-bg: #128C7E;
+            --time-color: #888;
+            --date-color: #666;
+            --error-color: #d32f2f;
+            --info-color: #075e54;
+            --spinner-border: #f3f3f3;
+            --spinner-top: #075e54;
+            --overlay-bg: rgba(255,255,255,0.9);
+        }
+
+        .dark-theme {
+            --bg-primary: #111b21;
+            --bg-surface: #202c33;
+            --bg-header: #1f2c34;
+            --text-primary: #e9edef;
+            --text-secondary: #8696a0;
+            --border-color: #2a3942;
+            --message-sent: #005c4b;
+            --message-received: #202c33;
+            --shadow: 0 10px 30px rgba(0,0,0,0.5);
+            --hover-bg: #2d3b45;
+            --input-bg: #2a3942;
+            --input-border: #3b4a54;
+            --menu-bg: #202c33;
+            --menu-text: #e9edef;
+            --menu-border: #2a3942;
+            --avatar-bg: #00a884;
+            --time-color: #8696a0;
+            --date-color: #8696a0;
+            --error-color: #f15c5c;
+            --info-color: #00a884;
+            --spinner-border: #2a3942;
+            --spinner-top: #00a884;
+            --overlay-bg: rgba(0,0,0,0.8);
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
-        body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        #app { width: 100%; max-width: 500px; height: 95vh; background: white; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; position: relative; }
-        header { background: #075e54; color: white; padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+        body { background: var(--bg-primary); display: flex; justify-content: center; align-items: center; min-height: 100vh; transition: background 0.3s; }
+        #app { width: 100%; max-width: 500px; height: 95vh; background: var(--bg-surface); border-radius: 28px; box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; position: relative; color: var(--text-primary); transition: background-color 0.3s, color 0.3s; }
+        header { background: var(--bg-header); color: white; padding: 16px; display: flex; align-items: center; justify-content: space-between; transition: background 0.3s; }
         header h2 { font-size: 1.2rem; font-weight: 500; }
         .header-buttons { display: flex; align-items: center; gap: 8px; }
-        .menu-btn, .sound-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; }
+        .menu-btn, .sound-btn, .theme-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+        .menu-btn:hover, .sound-btn:hover, .theme-btn:hover { background: rgba(255,255,255,0.2); }
         .sound-btn { font-size: 1.4rem; }
-        .menu-content { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); position: absolute; top: 60px; right: 16px; z-index: 10; display: none; }
+        .menu-content { background: var(--menu-bg); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); position: absolute; top: 60px; right: 16px; z-index: 10; display: none; color: var(--menu-text); border: 1px solid var(--menu-border); }
         .menu-content.show { display: block; }
-        .menu-content a { display: block; padding: 12px 16px; text-decoration: none; color: #333; border-bottom: 1px solid #ddd; cursor: pointer; }
+        .menu-content a { display: block; padding: 12px 16px; text-decoration: none; color: var(--menu-text); border-bottom: 1px solid var(--menu-border); cursor: pointer; transition: background 0.2s; }
         .menu-content a:last-child { border-bottom: none; }
-        .screen { height: 100%; overflow-y: auto; padding: 16px; display: none; flex-direction: column; }
+        .menu-content a:hover { background: var(--hover-bg); }
+        .screen { height: 100%; overflow-y: auto; padding: 16px; display: none; flex-direction: column; background: var(--bg-surface); }
         .screen.active { display: flex; }
         .input-group { margin-bottom: 12px; }
-        input, textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 24px; font-size: 1rem; outline: none; }
-        button { background: #075e54; color: white; border: none; padding: 12px 24px; border-radius: 24px; font-size: 1rem; cursor: pointer; }
-        button.secondary { background: #fff; color: #075e54; border: 1px solid #075e54; }
+        input, textarea { width: 100%; padding: 12px; border: 1px solid var(--input-border); border-radius: 24px; font-size: 1rem; outline: none; background: var(--input-bg); color: var(--text-primary); transition: border 0.2s, background 0.3s; }
+        input:focus, textarea:focus { border-color: var(--info-color); }
+        button { background: #075e54; color: white; border: none; padding: 12px 24px; border-radius: 24px; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #064e45; }
+        button.secondary { background: transparent; color: var(--info-color); border: 1px solid var(--info-color); }
+        button.secondary:hover { background: rgba(0,168,132,0.1); }
         button:disabled { opacity: 0.6; cursor: not-allowed; }
-        .user-item { padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; align-items: center; }
-        .user-item:hover { background: #f5f5f5; }
-        .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: #128C7E; color: white; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-weight: bold; text-transform: uppercase; }
-        .user-info h4 { font-size: 1rem; margin-bottom: 4px; }
-        .user-info p { font-size: 0.8rem; color: #666; }
+        .user-item { padding: 12px; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; transition: background 0.2s; }
+        .user-item:hover { background: var(--hover-bg); }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--avatar-bg); color: white; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-weight: bold; text-transform: uppercase; }
+        .user-info h4 { font-size: 1rem; margin-bottom: 4px; color: var(--text-primary); }
+        .user-info p { font-size: 0.8rem; color: var(--text-secondary); }
         #messagesArea { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; }
         .message { max-width: 70%; margin-bottom: 8px; padding: 8px 12px; border-radius: 20px; position: relative; word-wrap: break-word; }
-        .message.sent { align-self: flex-end; background: #dcf8c6; }
-        .message.received { align-self: flex-start; background: white; border: 1px solid #e0e0e0; }
-        .message-sender { font-size: 0.7rem; color: #888; margin-bottom: 2px; font-weight: 500; }
-        .message .time { font-size: 0.7rem; color: #888; margin-top: 4px; text-align: right; }
-        .date-header { text-align: center; font-size: 0.8rem; color: #666; margin: 16px 0 8px; font-weight: 500; }
-        #chatFooter { display: flex; padding: 8px; background: #f0f0f0; border-top: 1px solid #ddd; }
-        #messageInput { flex: 1; margin-right: 8px; border-radius: 24px; padding: 10px 16px; border: 1px solid #ccc; }
-        #sendBtn { border-radius: 50%; width: 48px; height: 48px; padding: 0; font-size: 1.2rem; }
-        .error { color: #d32f2f; font-size: 0.9rem; margin: 8px 0; text-align: center; }
-        .info { color: #075e54; font-size: 0.9rem; margin: 8px 0; text-align: center; }
-        #loadingOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+        .message.sent { align-self: flex-end; background: var(--message-sent); color: var(--text-primary); }
+        .message.received { align-self: flex-start; background: var(--message-received); border: 1px solid var(--border-color); }
+        .message-sender { font-size: 0.7rem; color: var(--time-color); margin-bottom: 2px; font-weight: 500; }
+        .message .time { font-size: 0.7rem; color: var(--time-color); margin-top: 4px; text-align: right; }
+        .date-header { text-align: center; font-size: 0.8rem; color: var(--date-color); margin: 16px 0 8px; font-weight: 500; }
+        #chatFooter { display: flex; padding: 8px; background: var(--bg-surface); border-top: 1px solid var(--border-color); }
+        #messageInput { flex: 1; margin-right: 8px; border-radius: 24px; padding: 10px 16px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-primary); }
+        #sendBtn { border-radius: 50%; width: 48px; height: 48px; padding: 0; font-size: 1.2rem; background: #075e54; color: white; border: none; }
+        #sendBtn:hover { background: #064e45; }
+        .error { color: var(--error-color); font-size: 0.9rem; margin: 8px 0; text-align: center; }
+        .info { color: var(--info-color); font-size: 0.9rem; margin: 8px 0; text-align: center; }
+        #loadingOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--overlay-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; backdrop-filter: blur(4px); }
         #loadingOverlay.hidden { display: none; }
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #075e54; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 16px; }
+        .spinner { border: 4px solid var(--spinner-border); border-top: 4px solid var(--spinner-top); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 16px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .warning { color: #ff9800; font-weight: bold; }
     </style>
@@ -59,6 +118,7 @@
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <div class="header-buttons">
+            <button class="theme-btn" id="themeToggle" title="Cambiar tema">🌙</button>
             <button class="sound-btn" id="soundToggle" title="Activar/desactivar sonido">🔊</button>
             <button class="menu-btn" id="menuToggle">☰</button>
         </div>
@@ -154,6 +214,7 @@
         let audioContext = null;
 
         // Elementos DOM
+        const app = document.getElementById('app');
         const loadingOverlay = document.getElementById('loadingOverlay');
         const loginScreen = document.getElementById('loginScreen');
         const registerScreen = document.getElementById('registerScreen');
@@ -167,6 +228,28 @@
         const logoutLink = document.getElementById('logoutLink');
         const noUsersMessage = document.getElementById('noUsersMessage');
         const soundToggle = document.getElementById('soundToggle');
+        const themeToggle = document.getElementById('themeToggle');
+
+        // --- Tema oscuro/claro ---
+        // Comprobar si hay preferencia guardada
+        let darkTheme = localStorage.getItem('darkTheme') === 'true';
+        applyTheme();
+
+        themeToggle.addEventListener('click', () => {
+            darkTheme = !darkTheme;
+            localStorage.setItem('darkTheme', darkTheme);
+            applyTheme();
+        });
+
+        function applyTheme() {
+            if (darkTheme) {
+                app.classList.add('dark-theme');
+                themeToggle.textContent = '☀️';
+            } else {
+                app.classList.remove('dark-theme');
+                themeToggle.textContent = '🌙';
+            }
+        }
 
         // --- Función para generar un beep con Web Audio API (mejorada) ---
         async function playBeep() {
