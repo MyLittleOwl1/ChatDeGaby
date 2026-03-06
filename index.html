@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyChat Web (con nombres y sonido)</title>
+    <title>MyChat Web (con nombres reales y sonido)</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -143,9 +143,15 @@
         let currentRecipientName = null;
         let messagesRef = null;
         let messagesCallback = null;
-        let childAddedListener = null; // Para el listener de sonido
-        let processedMessageKeys = new Set(); // Para evitar sonidos en mensajes existentes
-        let soundEnabled = true; // Estado del sonido
+        let childAddedListener = null;
+        let processedMessageKeys = new Set();
+        let soundEnabled = true;
+
+        // Mapa de usuarios: userId -> { displayName, email }
+        const usersMap = {};
+
+        // Contexto de audio único (para el beep)
+        let audioContext = null;
 
         // Elementos DOM
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -162,48 +168,40 @@
         const noUsersMessage = document.getElementById('noUsersMessage');
         const soundToggle = document.getElementById('soundToggle');
 
-        // --- Función para generar un beep con Web Audio API ---
-        function playBeep() {
+        // --- Función para generar un beep con Web Audio API (mejorada) ---
+        async function playBeep() {
             if (!soundEnabled) return;
 
             try {
-                // Crear un contexto de audio (si no existe o fue cerrado)
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                const audioCtx = new AudioContext();
-
-                // Reanudar si está suspendido (requiere interacción del usuario)
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume().then(() => {
-                        createBeep(audioCtx);
-                    });
-                } else {
-                    createBeep(audioCtx);
+                // Crear el contexto de audio si no existe
+                if (!audioContext) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    audioContext = new AudioContext();
                 }
+
+                // Reanudar el contexto si está suspendido (requiere interacción del usuario)
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                // Crear oscilador y nodo de ganancia
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.1);
             } catch (e) {
-                console.warn('Web Audio API no soportada:', e);
+                console.warn('Error reproduciendo beep:', e);
             }
-        }
-
-        function createBeep(audioCtx) {
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); // Frecuencia del beep
-
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); // Volumen bajo
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); // Desvanecer
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.1); // Duración 100ms
-
-            // Cerrar el contexto después de un tiempo para liberar recursos
-            setTimeout(() => {
-                audioCtx.close();
-            }, 200);
         }
 
         // --- Toggle de sonido ---
@@ -231,7 +229,7 @@
                 try {
                     await ensureUserInDatabase();
                     showScreen('users');
-                    loadUsersList();
+                    loadUsersList(); // También actualiza usersMap
                     headerTitle.innerText = `MyChat - ${user.displayName || user.email}`;
                 } catch (e) {
                     console.error('Error en auth state:', e);
@@ -243,7 +241,7 @@
                 currentUser = null;
                 showScreen('login');
                 headerTitle.innerText = 'MyChat';
-                // Limpiar listeners de mensajes
+                // Limpiar listeners y mapa
                 if (messagesRef) {
                     if (messagesCallback) messagesRef.off('value', messagesCallback);
                     if (childAddedListener) messagesRef.off('child_added', childAddedListener);
@@ -252,6 +250,8 @@
                     childAddedListener = null;
                 }
                 processedMessageKeys.clear();
+                // Vaciar mapa de usuarios
+                for (let key in usersMap) delete usersMap[key];
             }
         });
 
@@ -300,7 +300,7 @@
             menu.classList.remove('show');
         });
 
-        // --- Lista de usuarios ---
+        // --- Lista de usuarios y mapa ---
         function loadUsersList() {
             const usersRef = db.ref('users');
             usersRef.on('value', (snapshot) => {
@@ -308,9 +308,23 @@
                 snapshot.forEach((child) => {
                     let user = child.val();
                     if (!user.userId) user.userId = child.key;
+                    // Actualizar mapa de usuarios
+                    usersMap[user.userId] = {
+                        displayName: user.displayName || user.email,
+                        email: user.email
+                    };
                     if (user.userId !== currentUser?.uid) users.push(user);
                 });
                 renderUsersList(users);
+                // Si estamos en el chat, podríamos rerenderizar mensajes para actualizar nombres
+                if (chatScreen.classList.contains('active') && messagesRef) {
+                    messagesRef.once('value').then(snapshot => {
+                        const messages = [];
+                        snapshot.forEach(child => messages.push(child.val()));
+                        messages.sort((a, b) => a.timestamp - b.timestamp);
+                        renderMessages(messages);
+                    });
+                }
             });
         }
 
@@ -360,9 +374,9 @@
             }
 
             messagesRef = db.ref(`messages/${currentChatId}`);
-            processedMessageKeys.clear(); // Reiniciar el conjunto de mensajes procesados
+            processedMessageKeys.clear();
 
-            // 1. Cargar mensajes existentes una sola vez para conocer sus keys
+            // 1. Cargar mensajes existentes para marcar sus keys
             messagesRef.once('value', (snapshot) => {
                 snapshot.forEach((child) => {
                     processedMessageKeys.add(child.key);
@@ -374,12 +388,7 @@
                 const msg = snapshot.val();
                 const msgKey = snapshot.key;
 
-                // Si es un mensaje que ya teníamos (por el once), ignorar para el sonido
-                if (processedMessageKeys.has(msgKey)) {
-                    return;
-                }
-
-                // Marcar como procesado para futuros eventos
+                if (processedMessageKeys.has(msgKey)) return;
                 processedMessageKeys.add(msgKey);
 
                 // Reproducir sonido si está activado y el mensaje es de otro usuario
@@ -388,7 +397,7 @@
                 }
             });
 
-            // 3. Listener de valor para renderizar la lista completa (incluye todos los mensajes)
+            // 3. Listener de valor para renderizar la lista completa
             messagesCallback = (snapshot) => {
                 const messages = [];
                 snapshot.forEach((child) => {
@@ -400,7 +409,6 @@
                     }
                 });
                 messages.sort((a, b) => a.timestamp - b.timestamp);
-                console.log('Mensajes cargados:', messages.length);
                 renderMessages(messages);
             };
             messagesRef.on('value', messagesCallback);
@@ -426,33 +434,34 @@
                 const div = document.createElement('div');
                 div.className = `message ${msg.fromUserId === currentUser?.uid ? 'sent' : 'received'}`;
 
-                // Determinar el nombre a mostrar
-                let senderNameDisplay = '';
+                // Determinar el nombre del remitente
+                let senderName = '';
                 if (msg.fromUserId === currentUser?.uid) {
-                    senderNameDisplay = 'Tú';
+                    senderName = 'Tú';
                 } else {
-                    senderNameDisplay = msg.senderName || 'Usuario'; // Usar senderName si existe, si no, genérico
+                    // Si el mensaje tiene senderName (de web), lo usamos; si no, lo obtenemos del mapa
+                    if (msg.senderName) {
+                        senderName = msg.senderName;
+                    } else {
+                        const userData = usersMap[msg.fromUserId];
+                        senderName = userData ? userData.displayName : '...'; // Placeholder mientras carga
+                    }
                 }
 
-                // Crear el elemento del nombre
                 const nameDiv = document.createElement('div');
                 nameDiv.className = 'message-sender';
-                nameDiv.innerText = senderNameDisplay;
+                nameDiv.innerText = senderName;
 
-                // Crear el contenido del mensaje
                 const textDiv = document.createElement('div');
                 textDiv.innerText = msg.text;
 
-                // Crear la hora
                 const timeDiv = document.createElement('div');
                 timeDiv.className = 'time';
                 timeDiv.innerText = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                // Ensamblar
                 div.appendChild(nameDiv);
                 div.appendChild(textDiv);
                 div.appendChild(timeDiv);
-
                 container.appendChild(div);
             });
 
@@ -482,17 +491,14 @@
                 fromUserId: currentUser.uid,
                 toUserId: currentRecipientId,
                 text: text,
-                senderName: currentUser.displayName || currentUser.email, // Guardamos el nombre
+                senderName: currentUser.displayName || currentUser.email,
                 timestamp: Date.now(),
                 messageId: ''
             };
 
-            console.log('Enviando mensaje:', message);
-
             const newMsgRef = db.ref(`messages/${currentChatId}`).push();
             await newMsgRef.set({ ...message, messageId: newMsgRef.key });
 
-            // Actualizar último mensaje en chats
             await db.ref(`chats/${currentChatId}`).update({
                 lastMessage: text,
                 lastTimestamp: message.timestamp,
@@ -522,6 +528,10 @@
             try {
                 await currentUser.updateProfile({ displayName: newName });
                 await db.ref(`users/${currentUser.uid}/displayName`).set(newName);
+                // Actualizar mapa local
+                if (usersMap[currentUser.uid]) {
+                    usersMap[currentUser.uid].displayName = newName;
+                }
                 alert('Nombre actualizado');
             } catch (e) {
                 document.getElementById('profileError').innerText = e.message;
