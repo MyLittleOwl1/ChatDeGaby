@@ -64,10 +64,9 @@
         header { background: var(--bg-header); color: white; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; transition: background 0.3s; gap: 8px; flex-wrap: wrap; }
         header h2 { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 100px; }
         .header-buttons { display: flex; align-items: center; gap: 8px; }
-        .menu-btn, .sound-btn, .theme-btn, .zoom-btn { background: none; border: none; color: white; font-size: 1rem; cursor: pointer; padding: 4px 8px; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; flex-shrink: 0; }
-        .menu-btn:hover, .sound-btn:hover, .theme-btn:hover, .zoom-btn:hover { background: rgba(255,255,255,0.2); }
+        .menu-btn, .sound-btn, .theme-btn { background: none; border: none; color: white; font-size: 1rem; cursor: pointer; padding: 4px 8px; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; flex-shrink: 0; }
+        .menu-btn:hover, .sound-btn:hover, .theme-btn:hover { background: rgba(255,255,255,0.2); }
         .sound-btn { font-size: 1.1rem; }
-        .zoom-btn { font-size: 1rem; font-weight: bold; }
         .menu-content { background: var(--menu-bg); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); position: absolute; top: 60px; right: 16px; z-index: 10; display: none; color: var(--menu-text); border: 1px solid var(--menu-border); }
         .menu-content.show { display: block; }
         .menu-content a { display: block; padding: 12px 16px; text-decoration: none; color: var(--menu-text); border-bottom: 1px solid var(--menu-border); cursor: pointer; transition: background 0.2s; }
@@ -103,17 +102,6 @@
         .error { color: var(--error-color); font-size: 0.85rem; margin: 8px 0; text-align: center; }
         .info { color: var(--info-color); font-size: 0.85rem; margin: 8px 0; text-align: center; }
         h3 { font-size: 1.15rem; margin-bottom: 16px; }
-        /* Escalas de tamaño de texto */
-        #app.text-scale-small { font-size: 13px; }
-        #app.text-scale-normal { font-size: 16px; }
-        #app.text-scale-large { font-size: 18px; }
-        #app.text-scale-xl { font-size: 20px; }
-        #app.text-scale-small .message { font-size: 0.8rem; }
-        #app.text-scale-large .message { font-size: 1rem; }
-        #app.text-scale-xl .message { font-size: 1.1rem; }
-        #app.text-scale-small input, #app.text-scale-small textarea { font-size: 0.9rem; }
-        #app.text-scale-large input, #app.text-scale-large textarea { font-size: 1.1rem; }
-        #app.text-scale-xl input, #app.text-scale-xl textarea { font-size: 1.2rem; }
         @media (max-width: 600px) {
             #app { border-radius: 0; max-width: 100%; height: 100vh; }
             header { padding: 10px 12px; }
@@ -141,8 +129,6 @@
     <header>
         <h2 id="headerTitle">MyChat</h2>
         <div class="header-buttons">
-            <button class="zoom-btn" id="zoomOut" title="Reducir tamaño">A−</button>
-            <button class="zoom-btn" id="zoomIn" title="Aumentar tamaño">A+</button>
             <button class="theme-btn" id="themeToggle" title="Cambiar tema">🌙</button>
             <button class="sound-btn" id="soundToggle" title="Activar/desactivar sonido">🔊</button>
             <button class="menu-btn" id="menuToggle">☰</button>
@@ -231,7 +217,6 @@
         let childAddedListener = null;
         let processedMessageKeys = new Set();
         let soundEnabled = true;
-        let textScale = 'normal'; // 'small', 'normal', 'large', 'xl'
 
         // Mapa de usuarios: userId -> { displayName, email }
         const usersMap = {};
@@ -255,15 +240,11 @@
         const noUsersMessage = document.getElementById('noUsersMessage');
         const soundToggle = document.getElementById('soundToggle');
         const themeToggle = document.getElementById('themeToggle');
-        const zoomIn = document.getElementById('zoomIn');
-        const zoomOut = document.getElementById('zoomOut');
 
         // --- Tema oscuro/claro ---
         // Comprobar si hay preferencia guardada
         let darkTheme = localStorage.getItem('darkTheme') === 'true';
-        textScale = localStorage.getItem('textScale') || 'normal';
         applyTheme();
-        applyTextScale();
 
         themeToggle.addEventListener('click', () => {
             darkTheme = !darkTheme;
@@ -280,32 +261,6 @@
                 themeToggle.textContent = '🌙';
             }
         }
-
-        // --- Escala de texto ---
-        function applyTextScale() {
-            app.classList.remove('text-scale-small', 'text-scale-normal', 'text-scale-large', 'text-scale-xl');
-            app.classList.add(`text-scale-${textScale}`);
-        }
-
-        zoomIn.addEventListener('click', () => {
-            const scales = ['small', 'normal', 'large', 'xl'];
-            const currentIndex = scales.indexOf(textScale);
-            if (currentIndex < scales.length - 1) {
-                textScale = scales[currentIndex + 1];
-                localStorage.setItem('textScale', textScale);
-                applyTextScale();
-            }
-        });
-
-        zoomOut.addEventListener('click', () => {
-            const scales = ['small', 'normal', 'large', 'xl'];
-            const currentIndex = scales.indexOf(textScale);
-            if (currentIndex > 0) {
-                textScale = scales[currentIndex - 1];
-                localStorage.setItem('textScale', textScale);
-                applyTextScale();
-            }
-        });
 
         // --- Función para generar un beep con Web Audio API (mejorada) ---
         async function playBeep() {
